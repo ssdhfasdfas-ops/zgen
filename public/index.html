@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Choicer - منصة الدوبلاج التفاعلية</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-slate-950 text-white min-h-screen font-sans flex flex-col justify-center items-center p-4">
+
+  <!-- 1. شاشة الدخول والتسمية -->
+  <div id="auth-card" class="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md shadow-2xl">
+    <h1 class="text-3xl font-extrabold text-yellow-400 text-center mb-6">🎭 Choicer Multiplayer</h1>
+    <p class="text-xs text-slate-400 text-center mb-6">دوبلاج جماعي مباشر وتوزيع أدوار تلقائي حسب الأشخاص المتواجدين</p>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">اسمك الشرير / البطل (اختر أي اسم تريد):</label>
+        <input id="username" type="text" placeholder="اكتب اسمك هنا..." class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">كود الغرفة:</label>
+        <input id="room-id" type="text" placeholder="مثال: DUB1" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white uppercase focus:outline-none focus:border-yellow-400">
+      </div>
+      <button onclick="joinRoom()" class="w-full bg-yellow-400 hover:bg-yellow-500 text-slate-950 font-bold p-3 rounded-lg transition">دخول الغرفة 🚀</button>
+    </div>
+  </div>
+
+  <!-- 2. غرفة الدوبلاج الجماعية -->
+  <div id="room-card" class="hidden w-full max-w-5xl space-y-6">
+    
+    <!-- الشريط العلوي -->
+    <div class="bg-slate-900 p-4 rounded-xl flex justify-between items-center border border-slate-800">
+      <div>
+        <span class="text-slate-400">رمز الغرفة:</span>
+        <span id="display-room" class="font-bold text-yellow-400 text-lg mr-2"></span>
+      </div>
+      <div id="host-badge" class="hidden bg-red-500/20 text-red-400 text-xs px-3 py-1 rounded-full border border-red-500/30">مُنشئ الغرفة (Host)</div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      
+      <!-- القائمة الجانبية: الأعضاء والدور الحالي -->
+      <div class="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-6">
+        <div>
+          <h3 class="font-bold mb-3 text-slate-200">👥 المتواجدون بالأدوار:</h3>
+          <div id="players-list" class="space-y-2"></div>
+        </div>
+
+        <div id="upload-section" class="hidden border-t border-slate-800 pt-4">
+          <h3 class="font-bold mb-2 text-slate-200">🎬 اختيار ورفع المقطع:</h3>
+          <p class="text-xs text-slate-400 mb-2">الموقع سيتعرف على مدة المقطع ويقسم الحوارات بينكم تلقائياً!</p>
+          <input type="file" id="video-input" accept="video/*" class="w-full text-xs text-slate-400 file:bg-slate-800 file:border-0 file:text-white file:px-3 file:py-2 file:rounded-lg cursor-pointer">
+          <button onclick="uploadVideo()" class="mt-3 w-full bg-yellow-400 hover:bg-yellow-500 text-slate-950 font-bold text-sm p-2.5 rounded-lg transition">رفع والبدء 🚀</button>
+        </div>
+      </div>
+
+      <!-- منطقة العرض والتسجيل والتفاعل -->
+      <div class="md:col-span-2 bg-slate-900 p-5 rounded-xl border border-slate-800 flex flex-col items-center">
+        
+        <!-- مشغل الفيديو -->
+        <video id="main-video" class="w-full rounded-lg bg-black aspect-video mb-4" controls></video>
+
+        <!-- كرت حالة الحوار والأنيميشن -->
+        <div id="turn-banner" class="w-full bg-slate-800 p-4 rounded-xl text-center mb-4 min-h-[90px] flex flex-col justify-center items-center border border-slate-700">
+          <p class="text-slate-400 text-sm">ارفع مقطع فيديو للبدء في تقسيم الأدوار...</p>
+        </div>
+
+        <!-- أزرار التسجيل، الاستماع بالدقيقة، الإعادة والإكمال -->
+        <div id="controls-panel" class="w-full flex flex-col items-center gap-3">
+          
+          <div id="rec-controls" class="flex flex-wrap justify-center items-center gap-3">
+            <button id="rec-btn" disabled onclick="toggleRecording()" class="bg-red-600 hover:bg-red-700 disabled:opacity-30 text-white font-bold px-6 py-3 rounded-full flex items-center gap-2 transition shadow-lg">
+              <span id="rec-dot" class="w-3 h-3 bg-white rounded-full"></span>
+              <span id="rec-text">المايك جاهز</span>
+            </button>
+
+            <!-- زر سماع الصوت بالدقيقة المحددة -->
+            <button id="listen-btn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-3 rounded-xl flex items-center gap-2 text-sm transition">
+              ▶️ سماع بالدقيقة المحددة
+            </button>
+
+            <!-- زر إعادة التسجيل -->
+            <button id="retry-btn" class="hidden bg-slate-700 hover:bg-slate-600 text-white font-bold px-4 py-3 rounded-xl flex items-center gap-2 text-sm transition">
+              🔄 إعادة التسجيل
+            </button>
+
+            <!-- زر الاعتماد والاستمرار -->
+            <button id="continue-btn" class="hidden bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-3 rounded-xl flex items-center gap-2 text-sm transition shadow-lg">
+              ✅ اعتماد وانتقال للدور التالي
+            </button>
+          </div>
+
+          <!-- زر تشغيل العرض النهائي للمشهد كامل بالدوبلاج -->
+          <button id="watch-full-btn" onclick="playFullDub()" class="hidden bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 font-black px-8 py-4 rounded-xl text-lg shadow-xl hover:scale-105 transition">
+            🎉 تشغيل المقطع الكامل مع دوبلاج الجميع!
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let myRoom = '', myUsername = '', mySocketId = '';
+    let roomState = null;
+    let myMediaRecorder = null, audioChunks = [];
+    let isRecording = false;
+    let tempRecordedAudioUrl = null;
+    let tempAudioBlobBase64 = null;
+
+    socket.on('connect', () => { mySocketId = socket.id; });
+
+    function joinRoom() {
+      myUsername = document.getElementById('username').value.trim();
+      myRoom = document.getElementById('room-id').value.trim().toUpperCase();
+
+      if (!myUsername || !myRoom) return alert('الرجاء كتابة الاسم وكود الغرفة');
+
+      socket.emit('join_room', { roomId: myRoom, username: myUsername });
+
+      document.getElementById('auth-card').classList.add('hidden');
+      document.getElementById('room-card').classList.remove('hidden');
+      document.getElementById('display-room').innerText = myRoom;
+    }
+
+    socket.on('room_updated', (room) => {
+      roomState = room;
+
+      if (room.host === mySocketId) {
+        document.getElementById('host-badge').classList.remove('hidden');
+        document.getElementById('upload-section').classList.remove('hidden');
+      }
+
+      // قائمة اللاعبين وتحديث الأسماء المخصصة
+      const playersList = document.getElementById('players-list');
+      playersList.innerHTML = '';
+      room.players.forEach((p, idx) => {
+        const item = document.createElement('div');
+        item.className = `p-3 rounded-lg border text-sm font-bold flex justify-between items-center ${
+          p.id === mySocketId ? 'bg-yellow-400/10 border-yellow-400 text-yellow-400' : 'bg-slate-800 border-slate-700 text-slate-300'
+        }`;
+        item.innerHTML = `<span>👤 ${p.username}</span> <span class="text-xs bg-slate-700 px-2 py-1 rounded">دور ${idx + 1}</span>`;
+        playersList.appendChild(item);
+      });
+
+      // إعداد الفيديو إذا تم رفعه
+      const videoEl = document.getElementById('main-video');
+      if (room.videoUrl && videoEl.src !== window.location.origin + room.videoUrl) {
+        videoEl.src = room.videoUrl;
+      }
+
+      updateTurnUI();
+    });
+
+    async function uploadVideo() {
+      const fileInput = document.getElementById('video-input');
+      if (!fileInput.files[0]) return alert('اختر ملف فيديو أولاً');
+
+      const formData = new FormData();
+      formData.append('video', fileInput.files[0]);
+
+      const res = await fetch('/api/upload-video', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (data.videoUrl) {
+        // حساب مدة الفيديو تلقائياً بالمتصفح
+        const tempVideo = document.createElement('video');
+        tempVideo.src = data.videoUrl;
+        tempVideo.onloadedmetadata = () => {
+          socket.emit('set_video_info', {
+            videoUrl: data.videoUrl,
+            duration: tempVideo.duration || 30
+          });
+        };
+      }
+    }
+
+    // تحديث الواجهة حسب الدور الحالي والتوقيت
+    function updateTurnUI() {
+      if (!roomState || !roomState.turns || roomState.turns.length === 0) return;
+
+      const currentTurn = roomState.turns[roomState.currentTurnIndex];
+      const banner = document.getElementById('turn-banner');
+      const recBtn = document.getElementById('rec-btn');
+      const videoEl = document.getElementById('main-video');
+
+      if (roomState.isCompleted) {
+        banner.innerHTML = `<h2 class="text-xl font-extrabold text-green-400">🎉 اكتمل تسجيل جميع الحوارات!</h2><p class="text-slate-400 text-xs">يمكنكم الآن مشاهدة المقطع بالدوبلاج النهائي المدمج.</p>`;
+        document.getElementById('watch-full-btn').classList.remove('hidden');
+        recBtn.disabled = true;
+        return;
+      }
+
+      const isMyTurn = currentTurn.playerId === mySocketId;
+
+      // إيقاف الفيديو وضبط التوقيت عند بداية الدور
+      videoEl.currentTime = currentTurn.startTime;
+
+      banner.innerHTML = `
+        <div class="text-xs font-bold text-yellow-400 mb-1">المرحلة ${currentTurn.index + 1} من ${roomState.turns.length} (من الدقيقة ${formatTime(currentTurn.startTime)} إلى ${formatTime(currentTurn.endTime)})</div>
+        <div class="text-xl font-black text-white">الدور الحالي لـ: <span class="text-yellow-400">${currentTurn.playerUsername}</span></div>
+        ${isMyTurn ? '<p class="text-xs text-green-400 font-bold mt-1 animate-bounce">🎙️ جاء دورك الآن! اضغط سجل وصوتك سيتزامن مع هذه الدقيقة تماماً.</p>' : '<p class="text-xs text-slate-400 mt-1">بانتظار تسجيل خويّك لدوره...</p>'}
+      `;
+
+      if (isMyTurn) {
+        recBtn.disabled = false;
+      } else {
+        recBtn.disabled = true;
+      }
+    }
+
+    socket.on('turn_changed', ({ currentTurnIndex, isCompleted }) => {
+      if (roomState) {
+        roomState.currentTurnIndex = currentTurnIndex;
+        roomState.isCompleted = isCompleted;
+        
+        // إعادة ضبط الأزرار
+        resetRecordingButtons();
+        updateTurnUI();
+      }
+    });
+
+    socket.on('turn_recorded', ({ turnIndex, recordings }) => {
+      if (roomState) roomState.recordings = recordings;
+    });
+
+    // التسجيل والإعادة والاستماع
+    async function toggleRecording() {
+      const videoEl = document.getElementById('main-video');
+      const currentTurn = roomState.turns[roomState.currentTurnIndex];
+
+      if (!isRecording) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        myMediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        myMediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        myMediaRecorder.onstop = () => {
+          const blob = new Blob(audioChunks, { type: 'audio/webm' });
+          tempRecordedAudioUrl = URL.createObjectURL(blob);
+
+          const reader = new FileReader();
+          reader.readAsDataURL(blob);
+          reader.onloadend = () => {
+            tempAudioBlobBase64 = reader.result;
+            // إظهار أزرار الاستماع والإعادة والاعتماد
+            document.getElementById('listen-btn').classList.remove('hidden');
+            document.getElementById('retry-btn').classList.remove('hidden');
+            document.getElementById('continue-btn').classList.remove('hidden');
+          };
+        };
+
+        // تشغيل جزء الفيديو المخصص للتزامن
+        videoEl.currentTime = currentTurn.startTime;
+        videoEl.play();
+        myMediaRecorder.start();
+        isRecording = true;
+
+        document.getElementById('rec-text').innerText = 'جاري التسجيل... 🔴';
+        document.getElementById('rec-btn').classList.replace('bg-red-600', 'bg-amber-600');
+
+        // إيقاف تلقائي بنهاية الوقت المخصص للدور
+        const durationMs = (currentTurn.endTime - currentTurn.startTime) * 1000;
+        setTimeout(() => {
+          if (isRecording) toggleRecording();
+        }, durationMs);
+
+      } else {
+        myMediaRecorder.stop();
+        videoEl.pause();
+        isRecording = false;
+
+        document.getElementById('rec-text').innerText = 'تم التسجيل ✓';
+        document.getElementById('rec-btn').classList.replace('bg-amber-600', 'bg-red-600');
+        document.getElementById('rec-btn').disabled = true;
+      }
+    }
+
+    // سماع الصوت بالتوقيت في المقطع
+    document.getElementById('listen-btn').onclick = () => {
+      if (!tempRecordedAudioUrl) return;
+      const videoEl = document.getElementById('main-video');
+      const currentTurn = roomState.turns[roomState.currentTurnIndex];
+
+      videoEl.currentTime = currentTurn.startTime;
+      videoEl.muted = true; // كتم الفيديو لتسمع صوتك بوضوح
+      videoEl.play();
+
+      const audio = new Audio(tempRecordedAudioUrl);
+      audio.play();
+
+      const durationMs = (currentTurn.endTime - currentTurn.startTime) * 1000;
+      setTimeout(() => {
+        videoEl.pause();
+        videoEl.muted = false;
+      }, durationMs);
+    };
+
+    // إعادة التسجيل
+    document.getElementById('retry-btn').onclick = () => {
+      resetRecordingButtons();
+      document.getElementById('rec-btn').disabled = false;
+    };
+
+    // اعتماد والانتقال للدور التالي
+    document.getElementById('continue-btn').onclick = () => {
+      if (!tempAudioBlobBase64) return;
+      
+      socket.emit('submit_turn_audio', {
+        turnIndex: roomState.currentTurnIndex,
+        audioBase64: tempAudioBlobBase64
+      });
+
+      socket.emit('next_turn');
+    };
+
+    function resetRecordingButtons() {
+      tempRecordedAudioUrl = null;
+      tempAudioBlobBase64 = null;
+      document.getElementById('rec-text').innerText = 'المايك جاهز';
+      document.getElementById('listen-btn').classList.add('hidden');
+      document.getElementById('retry-btn').classList.add('hidden');
+      document.getElementById('continue-btn').classList.add('hidden');
+    }
+
+    // تشغيل المقطع النهائي المدمج مع جميع التسجيلات بالتوقيت الصحيح
+    function playFullDub() {
+      const videoEl = document.getElementById('main-video');
+      videoEl.currentTime = 0;
+      videoEl.muted = false;
+      videoEl.play();
+
+      videoEl.ontimeupdate = () => {
+        const time = videoEl.currentTime;
+
+        if (roomState && roomState.recordings) {
+          Object.keys(roomState.recordings).forEach(turnIdx => {
+            const turn = roomState.turns[turnIdx];
+            const rec = roomState.recordings[turnIdx];
+
+            if (turn && Math.abs(time - turn.startTime) < 0.25 && !rec.hasPlayed) {
+              rec.hasPlayed = true;
+              const audio = new Audio(rec.audioData);
+              audio.play();
+            }
+          });
+        }
+      };
+
+      videoEl.onseeking = () => {
+        if (roomState && roomState.recordings) {
+          Object.values(roomState.recordings).forEach(r => r.hasPlayed = false);
+        }
+      };
+    }
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+  </script>
+</body>
+</html>
