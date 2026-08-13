@@ -1,148 +1,23 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
-const WebSocket = require("ws");
-
-const PORT = process.env.PORT || 10000;
-const rooms = new Map();
-
-const SCENE = {
-  title: "The Missing Pizza",
-  roles: ["Detective", "Suspect"],
-  lines: [
-    { role: 0, text: "Where is the last slice of pizza?" },
-    { role: 1, text: "I have absolutely no idea what you're talking about." },
-    { role: 0, text: "Really? Then why is there pizza sauce on your sleeve?" },
-    { role: 1, text: "Okay, okay... maybe I know something." },
-    { role: 0, text: "Talk. And make it convincing." },
-    { role: 1, text: "Fine. I ate it. It was worth it." }
-  ]
-};
-
-function roomCode() {
-  return crypto.randomBytes(3).toString("hex").toUpperCase();
-}
-function send(ws, obj) {
-  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
-}
-function state(room) {
-  return {
-    type: "state",
-    room: room.code,
-    started: room.started,
-    line: room.line,
-    players: room.players.map(p => ({ id: p.id, name: p.name, role: p.role }))
-  };
-}
-function broadcast(room, obj) {
-  room.players.forEach(p => send(p.ws, obj));
-}
-
-const httpServer = http.createServer((req, res) => {
-  let urlPath = (req.url || "/").split("?")[0];
-  if (urlPath === "/") urlPath = "/index.html";
-  const safePath = path.normalize(urlPath).replace(/^(\.\.[\/\\])+/, "");
-  const file = path.join(__dirname, "public", safePath);
-  const ext = path.extname(file);
-  const types = {
-    ".html": "text/html; charset=utf-8",
-    ".js": "text/javascript; charset=utf-8",
-    ".css": "text/css; charset=utf-8"
-  };
-  fs.readFile(file, (err, data) => {
-    if (err) {
-      res.writeHead(404, {"Content-Type": "text/plain"});
-      return res.end("Not found");
-    }
-    res.writeHead(200, {"Content-Type": types[ext] || "application/octet-stream"});
-    res.end(data);
-  });
-});
-
-const wss = new WebSocket.Server({ server: httpServer });
-
-wss.on("connection", ws => {
-  let player = null;
-
-  ws.on("message", raw => {
-    let m;
-    try { m = JSON.parse(raw.toString()); } catch { return; }
-
-    if (m.type === "create") {
-      let code;
-      do code = roomCode(); while (rooms.has(code));
-      const room = { code, players: [], started: false, line: -1 };
-      rooms.set(code, room);
-      player = {
-        id: crypto.randomUUID(),
-        name: String(m.name || "Player").slice(0, 24),
-        role: 0,
-        ws
-      };
-      room.players.push(player);
-      send(ws, { type: "joined", room: code, id: player.id, role: 0, scene: SCENE });
-      broadcast(room, state(room));
-      return;
-    }
-
-    if (m.type === "join") {
-      const code = String(m.room || "").toUpperCase();
-      const room = rooms.get(code);
-      if (!room) return send(ws, { type: "error", message: "Room not found." });
-      if (room.players.length >= 2) return send(ws, { type: "error", message: "Room is full." });
-      if (room.started) return send(ws, { type: "error", message: "Scene already started." });
-
-      player = {
-        id: crypto.randomUUID(),
-        name: String(m.name || "Player").slice(0, 24),
-        role: 1,
-        ws
-      };
-      room.players.push(player);
-      send(ws, { type: "joined", room: code, id: player.id, role: 1, scene: SCENE });
-      broadcast(room, state(room));
-      return;
-    }
-
-    if (!player) return;
-    const room = [...rooms.values()].find(r => r.players.includes(player));
-    if (!room) return;
-
-    if (m.type === "start") {
-      if (player.role !== 0) return;
-      if (room.players.length !== 2)
-        return send(ws, { type: "error", message: "Waiting for the second player." });
-      room.started = true;
-      room.line = 0;
-      broadcast(room, state(room));
-      return;
-    }
-
-    if (m.type === "done") {
-      if (!room.started || room.line < 0 || room.line >= SCENE.lines.length) return;
-      if (SCENE.lines[room.line].role !== player.role) return;
-      room.line++;
-      if (room.line >= SCENE.lines.length) room.started = false;
-      broadcast(room, state(room));
-      return;
-    }
-  });
-
-  ws.on("close", () => {
-    if (!player) return;
-    const room = [...rooms.values()].find(r => r.players.includes(player));
-    if (!room) return;
-    room.players = room.players.filter(p => p !== player);
-    if (room.players.length === 0) rooms.delete(room.code);
-    else {
-      room.started = false;
-      room.line = -1;
-      broadcast(room, state(room));
-    }
-  });
-});
-
-httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log("Choicer Duo online on port " + PORT);
-});
+const http=require('http'),fs=require('fs'),path=require('path'),crypto=require('crypto');
+const WebSocket=require('ws');
+const PORT=process.env.PORT||10000, rooms=new Map();
+const roles=['Role 1','Role 2','Role 3','Role 4','Role 5','Role 6','Role 7','Role 8'];
+function code(){return crypto.randomBytes(3).toString('hex').toUpperCase()}
+function send(ws,x){if(ws.readyState===1)ws.send(JSON.stringify(x))}
+function snapshot(r){return {type:'state',room:r.code,started:r.started,video:r.video,playing:r.playing,position:r.position,players:r.players.map(p=>({id:p.id,name:p.name,role:p.role}))}}
+function broadcast(r,x){r.players.forEach(p=>send(p.ws,x))}
+function getRoom(p){return [...rooms.values()].find(r=>r.players.includes(p))}
+const httpServer=http.createServer((req,res)=>{let u=(req.url||'/').split('?')[0];if(u==='/')u='/index.html';const f=path.join(__dirname,'public',path.normalize(u).replace(/^(\.\.[\/\\])+/,''));const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8'};fs.readFile(f,(e,d)=>{if(e){res.writeHead(404);return res.end('Not found')}res.writeHead(200,{'Content-Type':types[path.extname(f)]||'application/octet-stream'});res.end(d)})});
+const wss=new WebSocket.Server({server:httpServer});
+wss.on('connection',ws=>{let p=null;ws.on('message',raw=>{let m;try{m=JSON.parse(raw)}catch{return}
+if(m.type==='create'){let c;do c=code();while(rooms.has(c));const r={code:c,players:[],started:false,video:'',playing:false,position:0};rooms.set(c,r);p={id:crypto.randomUUID(),name:String(m.name||'Player').slice(0,24),role:null,ws};r.players.push(p);send(ws,{type:'joined',room:c,id:p.id,roles});broadcast(r,snapshot(r));return}
+if(m.type==='join'){const r=rooms.get(String(m.room||'').toUpperCase());if(!r)return send(ws,{type:'error',message:'Room not found.'});if(r.players.length>=8)return send(ws,{type:'error',message:'Room is full (8 players).'});p={id:crypto.randomUUID(),name:String(m.name||'Player').slice(0,24),role:null,ws};r.players.push(p);send(ws,{type:'joined',room:r.code,id:p.id,roles});broadcast(r,snapshot(r));return}
+if(!p)return;const r=getRoom(p);if(!r)return;
+if(m.type==='role'){const n=Number(m.role);if(!Number.isInteger(n)||n<0||n>=8)return;if(r.players.some(x=>x!==p&&x.role===n))return send(ws,{type:'error',message:'That role is already taken.'});p.role=n;broadcast(r,snapshot(r));return}
+if(m.type==='video'){if(r.players[0]!==p)return;r.video=String(m.url||'').trim();r.position=0;r.playing=false;broadcast(r,snapshot(r));return}
+if(m.type==='start'){if(r.players[0]!==p)return;if(!r.video)return send(ws,{type:'error',message:'Add a direct video URL first.'});if(r.players.some(x=>x.role===null))return send(ws,{type:'error',message:'Everyone needs to choose a role.'});r.started=true;r.position=0;r.playing=false;broadcast(r,snapshot(r));return}
+if(m.type==='play'){if(r.players[0]!==p)return;r.playing=true;r.position=Number(m.position)||0;broadcast(r,snapshot(r));return}
+if(m.type==='pause'){if(r.players[0]!==p)return;r.playing=false;r.position=Number(m.position)||0;broadcast(r,snapshot(r));return}
+if(m.type==='seek'){if(r.players[0]!==p)return;r.position=Number(m.position)||0;broadcast(r,snapshot(r));return}
+});ws.on('close',()=>{if(!p)return;const r=getRoom(p);if(!r)return;r.players=r.players.filter(x=>x!==p);if(!r.players.length)rooms.delete(r.code);else broadcast(r,snapshot(r))})});
+httpServer.listen(PORT,'0.0.0.0',()=>console.log('Choicer Duo Dub v2 online on port '+PORT));
