@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Choicer Duo</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101217;color:#eee;font-family:system-ui,sans-serif}
+.wrap{max-width:850px;margin:auto;padding:28px}
+.card{background:#181b22;border:1px solid #303540;border-radius:18px;padding:22px;margin-bottom:16px}
+h1{margin:0 0 8px}.muted{color:#9ca3af}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+input,button{font:inherit;border-radius:10px;padding:11px 14px;border:1px solid #3b414d}
+input{background:#0e1015;color:#fff}
+button{background:#292e38;color:#fff;cursor:pointer}
+button:disabled{opacity:.4}
+.status{color:#a5b4fc}
+.line{min-height:190px;display:grid;place-items:center;text-align:center;font-size:28px;font-weight:650;padding:25px;border-radius:14px;background:#0e1015;margin:15px 0}
+.players{white-space:pre-line}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>CHOICER DUO</h1>
+<div class="muted">Two-player voice-acting prototype.</div>
+</div>
+
+<div class="card">
+<h2>Lobby</h2>
+<div class="row">
+<input id="name" placeholder="Your name">
+<input id="room" placeholder="Room code">
+<button id="create">CREATE ROOM</button>
+<button id="join">JOIN ROOM</button>
+</div>
+<p id="connection" class="status">Connecting...</p>
+</div>
+
+<div class="card">
+<h2 id="role">Not assigned</h2>
+<p id="roomInfo"></p>
+<div id="line" class="line">Connecting to game server...</div>
+<div class="row">
+<button id="start" disabled>START SCENE</button>
+<button id="done" disabled>DONE — NEXT</button>
+</div>
+<p id="status" class="status"></p>
+</div>
+
+<div class="card">
+<h2>Players</h2>
+<div id="players" class="players">No players yet.</div>
+</div>
+</div>
+
+<script>
+let ws, myRole = null, scene = null, state = null;
+const roles = ["Detective", "Suspect"];
+const $ = id => document.getElementById(id);
+
+function connect() {
+  const protocol = location.protocol === "https:" ? "wss://" : "ws://";
+  ws = new WebSocket(protocol + location.host);
+
+  ws.onopen = () => $("connection").textContent = "Connected.";
+  ws.onclose = () => $("connection").textContent = "Disconnected.";
+  ws.onerror = () => $("connection").textContent = "Connection error.";
+
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+
+    if (m.type === "error") {
+      $("status").textContent = m.message;
+    }
+
+    if (m.type === "joined") {
+      myRole = m.role;
+      scene = m.scene;
+      $("role").textContent = "You: " + roles[myRole];
+      $("roomInfo").textContent = "ROOM: " + m.room;
+      $("status").textContent = "Waiting for your friend...";
+    }
+
+    if (m.type === "state") {
+      state = m;
+      render();
+    }
+  };
+}
+
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
+$("create").onclick = () => send({type:"create", name:$("name").value || "Player"});
+$("join").onclick = () => send({
+  type:"join",
+  name:$("name").value || "Player",
+  room:$("room").value.trim().toUpperCase()
+});
+$("start").onclick = () => send({type:"start"});
+$("done").onclick = () => send({type:"done"});
+
+function render() {
+  if (!state) return;
+
+  $("players").textContent = state.players
+    .map(p => "• " + p.name + " → " + roles[p.role])
+    .join("\n");
+
+  $("start").disabled = !(myRole === 0 && state.players.length === 2 && !state.started);
+
+  if (!state.started) {
+    $("done").disabled = true;
+    $("line").textContent =
+      state.line >= scene.lines.length ? "🎬 SCENE COMPLETE" : "Waiting for both players...";
+    return;
+  }
+
+  if (state.line >= scene.lines.length) {
+    $("done").disabled = true;
+    $("line").textContent = "🎬 SCENE COMPLETE";
+    return;
+  }
+
+  const line = scene.lines[state.line];
+
+  if (line.role === myRole) {
+    $("line").textContent = "🎤 YOUR LINE\n\n“" + line.text + "”";
+    $("done").disabled = false;
+    $("status").textContent = "Say it out loud, then press DONE.";
+  } else {
+    $("line").textContent = "👂 WAIT\n\nThe other player is speaking...";
+    $("done").disabled = true;
+    $("status").textContent = "Wait for " + roles[line.role] + ".";
+  }
+}
+
+connect();
+</script>
+</body>
+</html>
