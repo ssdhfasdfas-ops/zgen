@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -26,6 +27,11 @@ const upload = multer({ storage, limits: { fileSize: 1024 * 1024 * 1024 } });
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '20mb' }));
 
+app.get('/api/ai-status', (req,res)=>{
+  const py=findPythonExecutable();
+  res.json({pythonPath: py, venvExists: process.platform==='win32' ? fs.existsSync(path.join(__dirname,'.venv','Scripts','python.exe')) : fs.existsSync(path.join(__dirname,'.venv','bin','python')), hfTokenConfigured: !!process.env.HF_TOKEN});
+});
+
 const presetScenes = [
   { id: 'preset-1', title: '🔥 مواجهة كوميدية بين شخصيتين', videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', duration: 15, characters: ['المهاجم','المدافع'], turns: [
     { index: 0, startTime: 1, endTime: 5, characterName: 'المهاجم' }, { index: 1, startTime: 5.5, endTime: 9.5, characterName: 'المدافع' }, { index: 2, startTime: 10, endTime: 14, characterName: 'المهاجم' }
@@ -47,16 +53,39 @@ function resolveUploadPath(videoUrl){
   const full=path.join(uploadsDir,path.basename(videoUrl));
   return fs.existsSync(full)?full:null;
 }
+function findPythonExecutable(){
+  const candidates=[];
+  if(process.env.PYTHON_BIN) candidates.push(process.env.PYTHON_BIN);
+  if(process.env.PYTHON) candidates.push(process.env.PYTHON);
+  if(process.platform === 'win32'){
+    candidates.push(path.join(__dirname,'.venv','Scripts','python.exe'));
+    candidates.push(path.join(process.cwd(),'.venv','Scripts','python.exe'));
+  } else {
+    candidates.push(path.join(__dirname,'.venv','bin','python'));
+    candidates.push(path.join(process.cwd(),'.venv','bin','python'));
+  }
+  // Only use PATH as a final fallback. This prevents Node from accidentally
+  // launching Python 3.14 while pyannote is installed in the project's 3.11 venv.
+  candidates.push(process.platform === 'win32' ? 'python.exe' : 'python3');
+  return candidates.find(x => x && (path.isAbsolute(x) ? fs.existsSync(x) : true)) || candidates[candidates.length-1];
+}
 function runDiarization(videoPath){
   return new Promise((resolve,reject)=>{
     const out=path.join(dataDir,'diarization-'+Date.now()+'-'+Math.random().toString(36).slice(2,7)+'.json');
-    const py=process.env.PYTHON||process.env.PYTHON_BIN||'python';
-    const child=spawn(py,[path.join(__dirname,'model','diarize.py'),videoPath,out],{env:process.env});
-    let stderr=''; child.stderr.on('data',d=>stderr+=d.toString());
-    child.on('error',()=>reject(new Error('Python غير متوفر. ثبّت Python 3.10/3.11 ومتطلبات model/requirements.txt')));
+    const py=findPythonExecutable();
+    const script=path.join(__dirname,'model','diarize.py');
+    const env={...process.env, PYTHONUNBUFFERED:'1'};
+    const child=spawn(py,[script,videoPath,out],{env,windowsHide:true});
+    let stderr=''; let stdout='';
+    child.stdout.on('data',d=>{stdout+=d.toString(); console.log('[diarize]',d.toString().trim())});
+    child.stderr.on('data',d=>{stderr+=d.toString(); console.error('[diarize]',d.toString().trim())});
+    child.on('error',err=>reject(new Error(`تعذر تشغيل Python\nالمسار المستخدم: ${py}\n${err.message}`)));
     child.on('close',code=>{
-      if(code!==0)return reject(new Error(stderr.trim().split('\n').slice(-5).join(' ')||'فشل Speaker Diarization'));
-      try{const data=JSON.parse(fs.readFileSync(out,'utf8'));fs.unlinkSync(out);resolve(data)}catch(e){reject(e)}
+      if(code!==0){
+        try{if(fs.existsSync(out))fs.unlinkSync(out)}catch{}
+        return reject(new Error(stderr.trim().split('\n').slice(-12).join(' ')||stdout.trim().split('\n').slice(-12).join(' ')||`فشل Speaker Diarization (exit ${code})`));
+      }
+      try{const data=JSON.parse(fs.readFileSync(out,'utf8'));fs.unlinkSync(out);resolve(data)}catch(e){reject(new Error(`تم التحليل لكن تعذر قراءة النتيجة: ${e.message}`))}
     });
   });
 }
@@ -71,7 +100,7 @@ app.post('/api/analyze-scene', upload.single('video'), async (req,res)=>{
   }catch(e){
     console.error('diarization:',e);
     const msg=String(e.message||e);
-    if(/HF_TOKEN|huggingface|401|403|gated|accept/i.test(msg)) return res.status(503).json({error:'النموذج غير مُجهز على السيرفر. يجب على مالك/مشغل السيرفر إعداد HF_TOKEN مرة واحدة فقط.'});
+    if(/HF_TOKEN|huggingface|401|403|gated|accept|authorized list|restricted/i.test(msg)) return res.status(503).json({error:'تعذر الوصول إلى نموذج Speaker Diarization. تأكد أن حساب المطور مسجل في Hugging Face وأنك وافقت على شروط نماذج pyannote.'});
     res.status(500).json({error:msg});
   }
 });

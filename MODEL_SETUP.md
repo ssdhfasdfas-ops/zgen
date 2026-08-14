@@ -6,6 +6,6 @@
 
 الملف `model/diarize.py` جاهز لتجربة النموذج وإرجاع مقاطع `start/end/speaker`.
 
-> لا تضع Hugging Face token في الواجهة. يجب أن يبقى في متغير بيئة على السيرفر باسم `HF_TOKEN`.
+> لا تضع Hugging Face token في الواجهة. يجب أن يبقى في متغير بيئة على السيرفر باسم `HF_TOKEN (اختياري إذا كان حساب Hugging Face محفوظًا محليًا)`.
 
 للتشغيل راجع `model/README.md`.
