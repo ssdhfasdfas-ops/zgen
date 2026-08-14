@@ -1,26 +1,21 @@
-# Speaker Diarization (جاهز للربط)
+# Choicer Speaker Diarization
 
-يتطلب Python 3.10 أو 3.11 + FFmpeg + PyTorch + pyannote.audio 3.x.
+The server runs `model/diarize.py` with the project's `.venv` automatically.
+Players do NOT install Python, pyannote, or Hugging Face.
 
-## التثبيت
+## Windows developer/server setup
 
-```bash
-python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# Linux/macOS: source .venv/bin/activate
-pip install -r model/requirements.txt
-```
+1. Create the environment in the project root:
+   `py -3.11 -m venv .venv`
+2. Activate it (optional):
+   `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+   `./.venv/Scripts/Activate.ps1`
+3. Install the requirements:
+   `python -m pip install -r model/requirements.txt`
+4. Install FFmpeg and make sure `ffmpeg.exe` is on PATH.
+5. Log into Hugging Face with `python -c "from huggingface_hub import login; login()"`, or set server-side `HF_TOKEN` in `.env`.
+6. Accept access for `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0`.
+7. Verify with:
+   `python -c "from pyannote.audio import Pipeline; Pipeline.from_pretrained('pyannote/speaker-diarization-3.1'); print('MODEL LOADED')"`
 
-أنشئ Hugging Face token وفعّل الوصول إلى `pyannote/speaker-diarization-3.1` ثم:
-
-Windows PowerShell:
-```powershell
-$env:HF_TOKEN="TOKEN_HERE"
-```
-
-Linux/macOS:
-```bash
-export HF_TOKEN="TOKEN_HERE"
-```
-
-بعد تشغيل Node، زر «تحليل المشهد + التعرف على المتحدثين» يستدعي `/api/analyze-scene` مباشرة، لذلك لا ينتظر تشغيل الفيديو ثانيةً كاملة. النموذج يستخرج الصوت ويحلله كملف مباشرة، ثم يعيد نفس `SPEAKER_xx` عند عودة المتحدث لاحقاً.
+The Node server prefers `.venv/Scripts/python.exe` automatically, so it does not depend on the global Python installation.
