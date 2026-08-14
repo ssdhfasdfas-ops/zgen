@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: choicer-studio
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/ai-status
+    envVars:
+      - key: HF_TOKEN
+        sync: false
