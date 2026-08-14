@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory() as td:
     # If HF_TOKEN is not set, pyannote/huggingface_hub will use the developer's
     # locally cached Hugging Face login (created with `hf auth login` or login()).
     if token:
-        pipeline=Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', token=token)
+        pipeline=Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', use_auth_token=token)
     else:
         raise SystemExit('HF_TOKEN غير مضبوط على السيرفر. ضع HF_TOKEN في ملف .env ثم أعد تشغيل السيرفر.')
     result=pipeline(wav)
