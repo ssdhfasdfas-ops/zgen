@@ -1,41 +1,65 @@
-# Speaker Diarization + فصل صوت الشخصيات
+# إضافة التعرف الحقيقي على المتحدثين
 
-## 1) التعرف على المتحدثين
-للتعرف الحقيقي على المتحدثين استخدم pyannote على السيرفر:
+التحليل الموجود داخل المتصفح تقريبي. إذا أردت أن يتعرف النظام على أن **نفس الشخص عاد للكلام بعد عدة أدوار** بدقة أعلى، استخدم Speaker Diarization على السيرفر.
+
+## 1) تثبيت Python
+
+يفضل Python 3.10 أو 3.11.
 
 ```bash
 python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# macOS/Linux: source .venv/bin/activate
-pip install torch torchaudio pyannote.audio
+# Windows
+.venv\\Scripts\\activate
+# Linux/macOS
+source .venv/bin/activate
+
+pip install torch pyannote.audio
 ```
 
-ضع Hugging Face token في `HF_TOKEN` ثم شغّل `diarize.py` على ملف الصوت.
+## 2) إنشاء Token
 
-النتيجة تكون مثل `SPEAKER_00`, `SPEAKER_01`... ونفس المتحدث يحتفظ بنفس الـID حتى لو رجع بعد عدة جولات.
+أنشئ Hugging Face access token، وامنح حسابك صلاحية الوصول إلى نموذج:
 
-## 2) فصل الحوار عن الخلفية
-المتصفح وحده لا يستطيع إزالة صوت الحوار من أغنية/مؤثرات بشكل موثوق. الحل الأفضل هو **Demucs** على السيرفر.
+`pyannote/speaker-diarization-3.1`
+
+ثم عرّف المتغير:
 
 ```bash
-pip install demucs
-# يجب أن يكون ffmpeg مثبتاً وموجوداً في PATH
-python model/separate_background.py input.mp4 --out separated
+# Windows PowerShell
+$env:HF_TOKEN="ضع_التوكن_هنا"
+
+# Linux/macOS
+export HF_TOKEN="ضع_التوكن_هنا"
 ```
 
-ينتج:
-- `vocals.wav` — الصوت الذي التقطه النموذج كصوت بشري/غنائي.
-- `no_vocals.wav` — الخلفية/الموسيقى والمؤثرات قدر الإمكان.
+**لا تضع التوكن داخل JavaScript أو الواجهة الأمامية.**
 
-> ملاحظة: Demucs ليس مضموناً 100% مع حوارات الأفلام؛ أحياناً يترك جزءاً من الكلام أو يزيل مؤثرات قريبة من الصوت.
+## 3) اختبار النموذج
 
-## دمج الدوبلاج مع الخلفية
-بعد الفصل، استخدم `no_vocals.wav` كمسار الخلفية، ثم ضع تسجيلات الدوبلاج فوقه في أوقات `startTime`/`endTime`. بهذه الطريقة لا يعود صوت الشخصية الأصلي في النتيجة، بينما تبقى الموسيقى والمؤثرات قدر الإمكان.
-
-مثال FFmpeg بعد تجهيز ملف الدوبلاج:
+حوّل الصوت إلى WAV ثم شغّل:
 
 ```bash
-ffmpeg -i video.mp4 -i background.wav -i dubbed.wav \\
-  -filter_complex "[0:v]copy[v];[1:a][2:a]amix=inputs=2:duration=longest[a]" \\
-  -map "[v]" -map "[a]" -c:v copy -c:a aac output.mp4
+python model/diarize.py input.wav output.json
 ```
+
+الناتج يكون مثل:
+
+```json
+[
+  {"start": 0.42, "end": 2.81, "speaker": "SPEAKER_00"},
+  {"start": 3.10, "end": 5.44, "speaker": "SPEAKER_01"},
+  {"start": 8.12, "end": 10.20, "speaker": "SPEAKER_00"}
+]
+```
+
+وهذا بالضبط ما نحتاجه: `SPEAKER_00` يرجع لاحقاً لنفس الشخصية بدلاً من إنشاء شخصية جديدة.
+
+## 4) دمجه داخل التطبيق
+
+الخطوة التالية هي إضافة endpoint في `server.js` يستقبل الفيديو، يستخرج مساره الصوتي، يشغّل `diarize.py`، ثم يعيد الـsegments إلى الواجهة. بعدها نربط كل `speaker` باسم شخصية مثل «الشخصية 1» ونستخدم نفس الـspeaker في كل رجعة.
+
+إذا كان المشروع سيعمل على جهازك الشخصي، هذا أفضل خيار للدقة. أما إذا كان سيعمل على استضافة سحابية، يجب أن تكون الاستضافة قادرة على تشغيل Python وPyTorch، وقد تحتاج GPU للأداء الأفضل.
+
+## ملاحظة
+
+Diarization يحدد **من يتكلم ومتى**، لكنه لا يعرف تلقائياً أن `SPEAKER_00 = أحمد` بالاسم. الاسم يُعطى من الواجهة أو من عينة صوتية/Voice Enrollment إذا أردت إضافة ذلك لاحقاً.

@@ -107,7 +107,7 @@ io.on('connection', socket => {
   });
 
   socket.on('start_recording_sync',()=>{const room=rooms[currentRoom]; if(!room)return; const turn=room.turns[room.currentTurnIndex]; if(!turn)return; io.to(currentRoom).emit('on_start_recording',{turn,recorderSocketId:socket.id});});
-  socket.on('stop_recording_sync',({audioBase64,duration,metrics})=>{const room=rooms[currentRoom];if(!room)return;if(audioBase64)room.recordings[room.currentTurnIndex]={audioData:audioBase64,duration:Math.max(0,Number(duration)||0),metrics:metrics||{},playerId:socket.id,username:currentUser};io.to(currentRoom).emit('on_stop_recording',{turnIndex:room.currentTurnIndex,recordings:room.recordings});});
+  socket.on('stop_recording_sync',({audioBase64,duration})=>{const room=rooms[currentRoom];if(!room)return;if(audioBase64)room.recordings[room.currentTurnIndex]={audioData:audioBase64,duration:Number(duration)||null,playerId:socket.id,username:currentUser};io.to(currentRoom).emit('on_stop_recording',{turnIndex:room.currentTurnIndex,recordings:room.recordings});});
   socket.on('broadcast_listen_turn',()=>{const room=rooms[currentRoom];if(!room)return;const turn=room.turns[room.currentTurnIndex],rec=room.recordings[room.currentTurnIndex];if(rec)io.to(currentRoom).emit('on_play_listen_turn',{turn,audioData:rec.audioData});});
   socket.on('next_turn',()=>{const room=rooms[currentRoom];if(!room)return;if(room.currentTurnIndex<room.turns.length-1)room.currentTurnIndex++;else room.isCompleted=true;io.to(currentRoom).emit('turn_changed',{currentTurnIndex:room.currentTurnIndex,isCompleted:room.isCompleted});});
   socket.on('start_full_dub_sync',()=>{const room=rooms[currentRoom];if(room)io.to(currentRoom).emit('on_start_full_dub',{recordings:room.recordings,turns:room.turns});});
