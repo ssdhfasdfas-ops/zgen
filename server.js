@@ -60,12 +60,20 @@ function runDiarization(videoPath){
     });
   });
 }
-app.post('/api/analyze-scene', async (req,res)=>{
+app.post('/api/analyze-scene', upload.single('video'), async (req,res)=>{
   try{
-    const full=resolveUploadPath(req.body?.videoUrl); if(!full)return res.status(400).json({error:'ملف الفيديو غير صالح أو غير مرفوع على السيرفر'});
+    // The browser may send the uploaded file directly. This prevents analysis from
+    // depending on fragile client-only state or a previous upload session.
+    const full = req.file?.path || resolveUploadPath(req.body?.videoUrl);
+    if(!full) return res.status(400).json({error:'لم يتم رفع ملف فيديو للتحليل.'});
     const segments=await runDiarization(full);
     res.json({segments,engine:'pyannote-speaker-diarization-3.1'});
-  }catch(e){console.error('diarization:',e);res.status(500).json({error:e.message})}
+  }catch(e){
+    console.error('diarization:',e);
+    const msg=String(e.message||e);
+    if(/HF_TOKEN|huggingface|401|403|gated|accept/i.test(msg)) return res.status(503).json({error:'النموذج غير مُجهز على السيرفر. يجب على مالك/مشغل السيرفر إعداد HF_TOKEN مرة واحدة فقط.'});
+    res.status(500).json({error:msg});
+  }
 });
 app.get('/api/scenes', (req,res)=>res.json(readLibrary().sort((a,b)=>b.createdAt-a.createdAt)));
 app.post('/api/upload-video', upload.single('video'), (req,res)=>{

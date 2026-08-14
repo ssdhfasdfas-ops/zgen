@@ -220,7 +220,7 @@
     // متغيرات أداة التقطيع اليدوية للهوست
     let customSegments = [];
     let tempStart = 0, tempEnd = 0;
-    let uploadedCustomVideoUrl = null;
+    let uploadedCustomVideoUrl = localStorage.getItem('choicerUploadedVideoUrl') || null;
     let autoDetectedSegments = [];
     let resultObjectUrl = null;
     let removeOriginalVoices = false;
@@ -322,9 +322,9 @@
       const res = await fetch('/api/upload-video', { method: 'POST', body: formData });
       const data = await res.json();
       if (data.videoUrl) {
-        uploadedCustomVideoUrl = data.videoUrl;
+        uploadedCustomVideoUrl = data.videoUrl; localStorage.setItem('choicerUploadedVideoUrl', uploadedCustomVideoUrl);
         videoEl.src = data.videoUrl;
-        originalWaveCache.clear(); customSegments=[]; renderCustomSegmentsList(); document.getElementById('auto-status').textContent='جاهز: اضغط التحليل التلقائي لاستخدام Speaker Diarization الحقيقي.'; renderWaveform({startTime:0,endTime:Math.min(10,videoEl.duration||10)}); alert('تم رفع المقطع! يمكنك الآن تشغيل التحليل التلقائي الحقيقي.');
+        originalWaveCache.clear(); customSegments=[]; renderCustomSegmentsList(); document.getElementById('auto-status').textContent='جاهز للتحليل التلقائي. إعداد النموذج يتم على السيرفر مرة واحدة فقط.'; renderWaveform({startTime:0,endTime:Math.min(10,videoEl.duration||10)}); alert('تم رفع المقطع! يمكنك الآن تشغيل التحليل التلقائي الحقيقي.');
       }
     });
 
@@ -643,14 +643,23 @@
       const status=document.getElementById('auto-status'); const btn=document.querySelector('button[onclick="runAutoSceneDetection()"]');
       btn.disabled=true; status.textContent='⏳ جاري تحليل الملف مباشرة على السيرفر — لن نشغّل الفيديو ثانيةً بالكامل...';
       try{
-        const res=await fetch('/api/analyze-scene',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoUrl:uploadedCustomVideoUrl})});
+        let request;
+        // Prefer the current File object when available; the server also accepts the saved URL.
+        const fileInput=document.getElementById('video-input');
+        if(fileInput && fileInput.files && fileInput.files[0]) {
+          const fd=new FormData(); fd.append('video', fileInput.files[0]);
+          request=fetch('/api/analyze-scene',{method:'POST',body:fd});
+        } else {
+          request=fetch('/api/analyze-scene',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoUrl:uploadedCustomVideoUrl})});
+        }
+        const res=await request;
         const data=await res.json(); if(!res.ok) throw new Error(data.error||'فشل تحليل المتحدثين');
         customSegments=(data.segments||[]).map((x,i)=>({index:i,startTime:x.startTime,endTime:x.endTime,characterName:`الشخصية ${Number(String(x.speaker).replace(/\\D/g,'')) + 1 || 1}`,speakerId:x.speaker,speakerCluster:x.speaker}));
         autoDetectedSegments=customSegments.slice(); renderCustomSegmentsList();
         const chars=[...new Set(customSegments.map(x=>x.characterName))];
         status.textContent=`✅ اكتمل بسرعة: ${customSegments.length} حوارات • ${chars.length} شخصيات صوتية حقيقية. نفس المتحدث يبقى بنفس الهوية عند رجوعه.`;
         alert(`تم التحليل الحقيقي بواسطة Speaker Diarization. اكتشف ${chars.length} شخصيات صوتية و${customSegments.length} حوارات.`);
-      }catch(e){console.error(e);status.textContent='⚠️ '+e.message;alert('فشل التحليل: '+e.message+'\nتأكد من تثبيت Python + pyannote ووجود HF_TOKEN.');}
+      }catch(e){console.error(e);status.textContent='⚠️ '+e.message;alert('فشل التحليل: '+e.message);}
       finally{btn.disabled=false;}
     }
 
