@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Choicer Studio - تحديد التوقيتات ومكتبة المشاهد</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-slate-950 text-white min-h-screen font-sans p-4">
+
+  <!-- القائمة الرئيسية والمكتبة العامة -->
+  <div id="home-card" class="w-full max-w-6xl mx-auto space-y-6">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+      <div class="flex flex-wrap justify-between items-center gap-3">
+        <div><h1 class="text-3xl font-extrabold text-yellow-400">🎭 Choicer Studio</h1><p class="text-xs text-slate-400 mt-1">مكتبة المشاهد + غرف الدوبلاج الجماعي</p></div>
+        <button onclick="openJoinCard()" class="bg-yellow-400 text-slate-950 font-black px-5 py-3 rounded-xl">دخول / إنشاء غرفة 🚀</button>
+      </div>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+      <div class="flex justify-between items-center mb-4"><div><h2 class="font-black text-xl">📚 المشاهد المنشورة</h2><p class="text-xs text-slate-400">أي لاعب ينشر مشهده يظهر هنا، ويمكن للهوست اختياره وتشغيله مع أصحابه.</p></div><button onclick="loadPublicScenes()" class="text-xs bg-slate-800 px-3 py-2 rounded-lg">↻ تحديث</button></div>
+      <div id="public-scenes" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+    </div>
+  </div>
+
+  <!-- 1. شاشة الدخول والتسمية -->
+  <div id="auth-card" class="hidden bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md shadow-2xl">
+    <h1 class="text-3xl font-extrabold text-yellow-400 text-center mb-2">🎭 Choicer Studio</h1>
+    <p class="text-xs text-slate-400 text-center mb-6">استوديو الدوبلاج: تحديد الأدوار يدوياً + مشاهد مجهزة مسبقاً</p>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">اسمك (اسم المؤدي):</label>
+        <input id="username" type="text" placeholder="اكتب اسمك هنا..." class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-400 mb-1">كود الغرفة:</label>
+        <input id="room-id" type="text" placeholder="مثال: DUB1" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white uppercase focus:outline-none focus:border-yellow-400">
+      </div>
+      <button onclick="joinRoom()" class="w-full bg-yellow-400 hover:bg-yellow-500 text-slate-950 font-bold p-3 rounded-lg transition">دخول الغرفة 🚀</button>
+    </div>
+  </div>
+
+  <!-- 2. غرفة الدوبلاج الجماعية -->
+  <div id="room-card" class="hidden w-full max-w-6xl space-y-6">
+    
+    <!-- الشريط العلوي -->
+    <div class="bg-slate-900 p-4 rounded-xl flex justify-between items-center border border-slate-800">
+      <div>
+        <span class="text-slate-400">رمز الغرفة:</span>
+        <span id="display-room" class="font-bold text-yellow-400 text-lg mr-2"></span>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap justify-end">
+        <div id="status-indicator" class="bg-slate-800 text-yellow-400 text-xs px-3 py-1 rounded-full border border-slate-700">🎬 استوديو تحكم الهوست والتأدية الجماعية</div>
+        <button onclick="goHome()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg">🏠 القائمة الرئيسية</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      
+      <!-- القائمة الجانبية: قائمة المشاركين والشخصيات المخصصة -->
+      <div class="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-6">
+        <div>
+          <h3 class="font-bold mb-3 text-slate-200">👥 المشاركون وتوزيع الأدوار:</h3>
+          <div id="players-list" class="space-y-2"></div>
+        </div>
+
+        <!-- لوحة الهوست لتجهيز المشهد -->
+        <div id="host-editor-panel" class="hidden border-t border-slate-800 pt-4 space-y-4">
+          <h3 class="font-bold text-yellow-400 text-sm">🛠️ أدوات الهوست (إعداد المشهد):</h3>
+          
+          <div class="flex gap-2">
+            <button onclick="switchHostTab('presets')" class="flex-1 bg-slate-800 hover:bg-slate-700 text-xs py-2 rounded border border-slate-700">📚 المكتبة العامة</button>
+            <button onclick="switchHostTab('custom')" class="flex-1 bg-slate-800 hover:bg-slate-700 text-xs py-2 rounded border border-slate-700">✂️ إعداد المشهد</button>
+          </div>
+
+          <div class="bg-slate-950 p-3 rounded-lg border border-yellow-500/20 space-y-2">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm font-bold text-yellow-300">🤖 الوضع التلقائي للمشاهد الطويلة</div>
+                <div class="text-[10px] text-slate-400">يكتشف الكلام ثم يقارن بصمة الصوت بين المقاطع حتى تبقى نفس الشخصية حتى لو رجعت تتكلم بعد عدة أدوار.</div>
+              </div>
+              <span class="text-[10px] bg-green-500/10 text-green-300 px-2 py-1 rounded-full">اختياري</span>
+            </div>
+            <button onclick="runAutoSceneDetection()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs p-2 rounded-lg">
+              ✨ تحليل المشهد + التعرف على المتحدثين
+            </button>
+            <div id="auto-status" class="text-[10px] text-slate-500">ارفع الفيديو أولاً ثم شغّل التحليل.</div>
+          </div>
+
+          <!-- خيار 1: مكتبة مشاهد جاهزة -->
+          <div id="tab-presets" class="space-y-2">
+            <p class="text-xs text-slate-400">اختر مشهداً من المكتبة العامة أو الجاهزة:</p>
+            <div id="room-library-list" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
+            <div id="presets-list" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
+          </div>
+
+          <!-- خيار 2: صانع التوقيتات اليدوي -->
+          <div id="tab-custom" class="hidden space-y-3">
+            <p class="text-xs text-slate-400">ارفع مقطعك وحدد بدايات ونهايات حوار كل شخصية بنفسك:</p>
+            <input type="file" id="video-input" accept="video/*" class="w-full text-xs text-slate-400 file:bg-slate-800 file:border-0 file:text-white file:px-2 file:py-1 file:rounded cursor-pointer">
+            
+            <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
+              <div class="text-xs text-yellow-300 font-bold">1️⃣ تحديد توقيت الحوار الحالي:</div>
+              <div class="flex items-center gap-2">
+                <button onclick="markTime('start')" class="bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1.5 rounded">بداية الحوار ⏱️</button>
+                <span id="start-time-val" class="text-xs text-slate-300">00:00</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button onclick="markTime('end')" class="bg-indigo-600 hover:bg-indigo-700 text-xs px-2 py-1.5 rounded">نهاية الحوار ⏱️</button>
+                <span id="end-time-val" class="text-xs text-slate-300">00:00</span>
+              </div>
+              <input id="char-name-input" type="text" placeholder="اسم الشخصية (مثال: البطل)" class="w-full bg-slate-800 text-xs border border-slate-700 rounded p-2 text-white">
+              <button onclick="addCustomSegment()" class="w-full bg-green-600 hover:bg-green-700 text-xs font-bold p-2 rounded">+ إضافة الحوار للقائمة</button>
+            </div>
+
+            <!-- قائمة الحوارات المضافة -->
+            <div class="space-y-1">
+              <div class="text-xs font-bold text-slate-300">قائمة حوارات المشهد:</div>
+              <div id="custom-segments-list" class="max-h-32 overflow-y-auto space-y-1 text-xs"></div>
+            </div>
+
+            <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
+              <div class="text-xs font-bold text-yellow-300">🎚️ معالجة الصوت (اختيارية):</div>
+              <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input id="remove-original-voices" type="checkbox" class="accent-yellow-400">
+                محاولة خفض/إزالة الصوت الأصلي أثناء الدوبلاج والإبقاء على الخلفية
+              </label>
+              <p class="text-[10px] text-slate-500">النتيجة تعتمد على تسجيل الفيديو؛ إذا كان الحوار في المنتصف قد ينجح العزل جزئياً فقط.</p>
+              <p class="text-[10px] text-cyan-300/80">💡 للفصل الحقيقي بين الحوار والخلفية استخدم Demucs على السيرفر؛ التعليمات موجودة في <code>model/README.md</code>.</p>
+            </div>
+            <button onclick="publishCustomScene()" class="w-full bg-yellow-400 hover:bg-yellow-500 text-slate-950 font-bold text-xs p-2.5 rounded-lg transition">🚀 تجهيز المشهد وتوزيعه</button>
+            <button onclick="publishFinishedScene()" class="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs p-2.5 rounded-lg transition">📚 نشر المشهد في المكتبة بعد التسجيل</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- منطقة المشغّل والمزامنة -->
+      <div class="md:col-span-2 bg-slate-900 p-5 rounded-xl border border-slate-800 flex flex-col items-center">
+        
+        <!-- مشغل الفيديو -->
+        <video id="main-video" controls class="w-full rounded-lg bg-black aspect-video mb-4" playsinline></video>
+        <div id="audio-preview-card" class="w-full bg-slate-950 border border-cyan-500/20 rounded-xl p-3 mb-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="text-sm font-black text-cyan-300">🔊 صوت الحوار الأصلي</div>
+              <div class="text-[10px] text-slate-500">اسمع الجزء المحدد قبل التسجيل حتى تعرف الحوار والتوقيت.</div>
+            </div>
+            <button id="preview-original-btn" onclick="previewOriginalTurn()" class="bg-cyan-600 hover:bg-cyan-500 px-4 py-2 rounded-lg text-xs font-bold">▶️ سماع الحوار الأصلي</button>
+          </div>
+          <div id="audio-wave" class="mt-3 text-cyan-300 text-lg tracking-widest select-none" aria-label="موجة صوتية">▁▃▅▇▆▄▂▅▇▃▁</div>
+          <div id="audio-preview-status" class="text-[10px] text-slate-500 mt-1">🎧 جاهز للمعاينة</div>
+        </div>
+
+        <!-- كرت حالة الحوار الحالي -->
+        <div id="turn-banner" class="w-full bg-slate-800 p-4 rounded-xl text-center mb-4 min-h-[90px] flex flex-col justify-center items-center border border-slate-700">
+          <p class="text-slate-400 text-sm">الهوست يقوم الآن باختيار أو إعداد المشهد للجميع...</p>
+        </div>
+
+        <!-- أزرار التحكم بالتسجيل -->
+        <div id="controls-panel" class="w-full flex flex-col items-center gap-3">
+          <div id="rec-controls" class="flex flex-wrap justify-center items-center gap-3">
+            <button id="rec-btn" disabled onclick="handleRecClick()" class="bg-red-600 hover:bg-red-700 disabled:opacity-30 text-white font-bold px-6 py-3 rounded-full flex items-center gap-2 transition shadow-lg">
+              <span id="rec-dot" class="w-3 h-3 bg-white rounded-full"></span>
+              <span id="rec-text">بانتظار تجهيز المشهد</span>
+            </button>
+            <button id="stop-rec-btn" onclick="stopMyRecordingEarly()" class="hidden bg-orange-600 hover:bg-orange-500 text-white font-bold px-4 py-3 rounded-xl text-sm">⏹️ إيقاف التسجيل الآن</button>
+
+            <button id="listen-btn" onclick="triggerListenBroadcast()" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-3 rounded-xl flex items-center gap-2 text-sm transition">
+              ▶️ استماع الجميع للدوبلاج
+            </button>
+
+            <button id="retry-btn" onclick="retryRecording()" class="hidden bg-slate-700 hover:bg-slate-600 text-white font-bold px-4 py-3 rounded-xl flex items-center gap-2 text-sm transition">
+              🔄 إعادة التسجيل
+            </button>
+
+            <button id="continue-btn" onclick="nextTurnBroadcast()" class="hidden bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-3 rounded-xl flex items-center gap-2 text-sm transition shadow-lg">
+              ✅ اعتماد وانتقال للحوار التالي ➔
+            </button>
+          </div>
+
+          <button id="watch-full-btn" onclick="triggerFullDubBroadcast()" class="hidden bg-gradient-to-r from-yellow-400 to-amber-500 text-slate-950 font-black px-8 py-4 rounded-xl text-lg shadow-xl hover:scale-105 transition">
+            🎉 تشغيل المشهد المكتمل بجميع شخصياته!
+          </button>
+        </div>
+
+        <div id="result-panel" class="hidden w-full mt-4 bg-slate-950 border border-green-500/30 rounded-xl p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div class="font-black text-green-400">🏆 نتيجة الدوبلاج</div>
+              <div class="text-xs text-slate-400">نسبة المطابقة تعتمد على التوقيت ومدة الأداء، وليست حكماً لغوياً على جودة الصوت.</div>
+            </div>
+            <div id="match-score" class="text-3xl font-black text-yellow-300">--%</div>
+          </div>
+          <div id="score-details" class="text-xs text-slate-400 mt-2"></div>
+          <div class="flex flex-wrap gap-2 mt-3">
+            <button id="render-result-btn" onclick="renderAndDownloadDubbedVideo()" class="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg font-bold text-sm">🎬 تجهيز وتحميل النتيجة</button>
+            <button onclick="publishFinishedScene()" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg font-bold text-sm">📚 نشر في المكتبة</button>
+            <a id="download-result" class="hidden bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-bold text-sm" download="choicer-dubbed-result.webm">⬇️ تحميل النتيجة</a>
+          </div>
+          <div id="render-status" class="text-xs text-slate-500 mt-2"></div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let myRoom = '', myUsername = '', mySocketId = '';
+    let playerKey = localStorage.getItem('choicerPlayerKey') || ('p-' + crypto.randomUUID());
+    localStorage.setItem('choicerPlayerKey', playerKey);
+    let roomState = null;
+    let myMediaRecorder = null, audioChunks = [];
+    let isRecording = false;
+    let turnTimer = null;
+    let activeDubAudio = null;
+    let originalPreviewTimer = null;
+    let recordingStartedAt = 0;
+
+    // متغيرات أداة التقطيع اليدوية للهوست
+    let customSegments = [];
+    let tempStart = 0, tempEnd = 0;
+    let uploadedCustomVideoUrl = null;
+    let autoDetectedSegments = [];
+    let resultObjectUrl = null;
+    let removeOriginalVoices = false;
+
+    socket.on('connect', () => { mySocketId = socket.id; });
+
+    function openJoinCard(){ document.getElementById('home-card').classList.add('hidden'); document.getElementById('auth-card').classList.remove('hidden'); document.getElementById('username').value=localStorage.getItem('choicerUsername')||''; document.getElementById('room-id').value=localStorage.getItem('choicerRoom')||''; }
+    function goHome(){
+      document.getElementById('room-card').classList.add('hidden');
+      document.getElementById('auth-card').classList.add('hidden');
+      document.getElementById('home-card').classList.remove('hidden');
+      loadPublicScenes();
+      window.scrollTo({top:0, behavior:'smooth'});
+    }
+    function leaveRoom(){ goHome(); }
+
+    function joinRoom() {
+      myUsername = document.getElementById('username').value.trim();
+      myRoom = document.getElementById('room-id').value.trim().toUpperCase();
+      if (!myUsername || !myRoom) return alert('الرجاء كتابة الاسم وكود الغرفة');
+      localStorage.setItem('choicerUsername', myUsername); localStorage.setItem('choicerRoom', myRoom);
+      socket.emit('join_room', { roomId: myRoom, username: myUsername, playerKey });
+      document.getElementById('home-card').classList.add('hidden'); document.getElementById('auth-card').classList.add('hidden'); document.getElementById('room-card').classList.remove('hidden');
+      document.getElementById('display-room').innerText = myRoom;
+      loadPresets(); loadPublicScenes();
+    }
+
+    async function loadPublicScenes(){
+      try{ const res=await fetch('/api/scenes'); const scenes=await res.json(); renderPublicScenes(scenes); renderRoomLibrary(scenes); }catch(e){}
+    }
+    function renderPublicScenes(scenes){
+      const box=document.getElementById('public-scenes'); if(!box)return; box.innerHTML='';
+      if(!scenes.length){box.innerHTML='<div class="text-xs text-slate-500">لا توجد مشاهد منشورة بعد.</div>';return;}
+      scenes.forEach(sc=>{ const d=document.createElement('div'); d.className='bg-slate-950 border border-slate-800 rounded-xl p-4'; d.innerHTML=`<div class="font-bold text-yellow-300">${escapeHtml(sc.title)}</div><div class="text-[10px] text-slate-400 mt-1">بواسطة ${escapeHtml(sc.creatorName||'مؤدي')} • ${(sc.characters||[]).length} شخصيات • ${(sc.turns||[]).length} حوارات</div><button onclick="joinAndUseScene('${sc.id}')" class="mt-3 w-full bg-blue-600 hover:bg-blue-500 text-xs font-bold p-2 rounded-lg">اختيار المشهد + دعوة خويك</button>`; box.appendChild(d); });
+    }
+    function renderRoomLibrary(scenes){
+      const box=document.getElementById('room-library-list'); if(!box)return; box.innerHTML='';
+      scenes.slice(0,20).forEach(sc=>{ const d=document.createElement('div'); d.className='p-2 bg-slate-950 rounded border border-slate-800 flex justify-between items-center gap-2'; d.innerHTML=`<div><div class="font-bold text-yellow-300 text-xs">${escapeHtml(sc.title)}</div><div class="text-[10px] text-slate-500">${escapeHtml(sc.creatorName||'')}</div></div><button onclick="selectLibraryScene('${sc.id}')" class="bg-blue-600 text-white px-2 py-1 rounded text-[10px]">اختيار</button>`; box.appendChild(d); });
+    }
+    async function selectLibraryScene(id){ socket.emit('load_library_scene',{sceneId:id}); }
+    async function joinAndUseScene(id){ openJoinCard(); document.getElementById('room-id').value=localStorage.getItem('choicerRoom')||''; window.pendingSceneId=id; }
+    function escapeHtml(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));}
+
+    async function loadPresets() {
+      const res = await fetch('/api/presets');
+      const presets = await res.json();
+      const listContainer = document.getElementById('presets-list');
+      listContainer.innerHTML = '';
+
+      presets.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'p-2.5 bg-slate-950 hover:bg-slate-800 rounded border border-slate-800 cursor-pointer text-xs transition flex justify-between items-center';
+        item.innerHTML = `
+          <div>
+            <div class="font-bold text-yellow-300">${p.title}</div>
+            <div class="text-[10px] text-slate-400">${p.turns.length} حوارات | ${p.characters.join(', ')}</div>
+          </div>
+          <button onclick="selectPreset('${p.id}')" class="bg-yellow-400 text-slate-950 font-bold px-2 py-1 rounded text-[10px]">اختيار 🚀</button>
+        `;
+        listContainer.appendChild(item);
+      });
+    }
+
+    async function selectPreset(id) {
+      const res = await fetch('/api/presets');
+      const presets = await res.json();
+      const preset = presets.find(p => p.id === id);
+      if (preset) {
+        socket.emit('set_custom_scene', {
+          videoUrl: preset.videoUrl,
+          turns: preset.turns,
+          characters: preset.characters
+        });
+      }
+    }
+
+    function switchHostTab(tab) {
+      if (tab === 'presets') {
+        document.getElementById('tab-presets').classList.remove('hidden');
+        document.getElementById('tab-custom').classList.add('hidden');
+      } else {
+        document.getElementById('tab-presets').classList.add('hidden');
+        document.getElementById('tab-custom').classList.remove('hidden');
+      }
+    }
+
+    // أداة التقطيع اليدوي للهوست
+    const videoEl = document.getElementById('main-video');
+
+    document.getElementById('video-input').addEventListener('change', async (e) => {
+      if (!e.target.files[0]) return;
+      const formData = new FormData();
+      formData.append('video', e.target.files[0]);
+
+      const res = await fetch('/api/upload-video', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.videoUrl) {
+        uploadedCustomVideoUrl = data.videoUrl;
+        videoEl.src = data.videoUrl;
+        alert('تم رفع المقطع! استعمل مشغل الفيديو لتحديد توقيتات حوار كل شخصية.');
+      }
+    });
+
+    function markTime(type) {
+      if (type === 'start') {
+        tempStart = Math.round(videoEl.currentTime * 10) / 10;
+        document.getElementById('start-time-val').innerText = formatTime(tempStart);
+      } else {
+        tempEnd = Math.round(videoEl.currentTime * 10) / 10;
+        document.getElementById('end-time-val').innerText = formatTime(tempEnd);
+      }
+    }
+
+    function addCustomSegment() {
+      const charName = document.getElementById('char-name-input').value.trim();
+      if (!charName) return alert('اكتب اسم الشخصية لتخصيص الدور له');
+      if (tempEnd <= tempStart) return alert('تأكد من أن وقت النهاية أكبر من وقت البداية');
+
+      customSegments.push({
+        index: customSegments.length,
+        startTime: tempStart,
+        endTime: tempEnd,
+        characterName: charName
+      });
+
+      renderCustomSegmentsList();
+      document.getElementById('char-name-input').value = '';
+    }
+
+    function renderCustomSegmentsList() {
+      const container = document.getElementById('custom-segments-list');
+      container.innerHTML = '';
+      customSegments.forEach((s, idx) => {
+        const item = document.createElement('div');
+        item.className = 'bg-slate-900 p-1.5 rounded flex justify-between items-center border border-slate-800';
+        item.innerHTML = `
+          <span>🎭 <strong>${s.characterName}</strong> (${formatTime(s.startTime)} - ${formatTime(s.endTime)})</span>
+          <button onclick="removeSegment(${idx})" class="text-red-400 hover:text-red-300 text-[10px]">إلغاء ✖</button>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function removeSegment(idx) {
+      customSegments.splice(idx, 1);
+      renderCustomSegmentsList();
+    }
+
+    function publishCustomScene() {
+      if (!uploadedCustomVideoUrl) return alert('ارفع الفيديو أولاً');
+      if (customSegments.length === 0) return alert('أضف حواراً واحداً على الأقل');
+
+      // استخراج الشخصيات الفريدة
+      const uniqueCharacters = [...new Set(customSegments.map(s => s.characterName))];
+
+      removeOriginalVoices = document.getElementById('remove-original-voices').checked;
+      socket.emit('set_custom_scene', {
+        videoUrl: uploadedCustomVideoUrl,
+        turns: customSegments,
+        characters: uniqueCharacters
+      });
+
+      alert('تم نشر وتوزيع المشهد المخصص بنجاح!');
+    }
+
+    function publishFinishedScene(){
+      if(!roomState?.turns?.length || !roomState.videoUrl) return alert('جهز المشهد أولاً.');
+      const title=prompt('اسم المشهد في المكتبة:', roomState.title||'مشهد دوبلاج'); if(!title)return;
+      socket.emit('publish_room_scene',{title});
+    }
+
+    socket.on('room_updated', (room) => {
+      roomState = room;
+
+      if (room.host === mySocketId) {
+        document.getElementById('host-editor-panel').classList.remove('hidden');
+      }
+
+      // تحديث قائمة الأعضاء وتخصيص الشخصيات
+      const playersList = document.getElementById('players-list');
+      playersList.innerHTML = '';
+      room.players.forEach((p) => {
+        const item = document.createElement('div');
+        item.className = `p-3 rounded-lg border text-sm font-bold flex flex-col gap-1 ${
+          p.id === mySocketId ? 'bg-yellow-400/10 border-yellow-400 text-yellow-400' : 'bg-slate-800 border-slate-700 text-slate-300'
+        }`;
+        item.innerHTML = `
+          <div class="flex justify-between items-center">
+            <span>👤 ${p.username} ${p.id === mySocketId ? '(أنت)' : ''}</span>
+          </div>
+          <div class="text-xs text-yellow-300/80 bg-slate-900/60 p-1.5 rounded border border-slate-700/50">
+            🎭 الأدوار: <strong class="text-white">${(p.assignedCharacters && p.assignedCharacters.length ? p.assignedCharacters.join('، ') : (p.assignedCharacter || 'بانتظار تحديد المشهد'))}</strong>
+          </div>
+        `;
+        playersList.appendChild(item);
+      });
+
+      if (room.videoUrl && videoEl.src !== window.location.origin + room.videoUrl && videoEl.src !== room.videoUrl) { videoEl.src = room.videoUrl; }
+      renderRoomLibrary(window._publicScenes || []);
+      updateTurnUI();
+      if(window.pendingSceneId && room.host===mySocketId){ socket.emit('load_library_scene',{sceneId:window.pendingSceneId}); window.pendingSceneId=null; }
+    });
+
+
+    socket.on('library_updated', scenes => { window._publicScenes=scenes||[]; renderPublicScenes(window._publicScenes); renderRoomLibrary(window._publicScenes); });
+    socket.on('scene_published', scene => { alert('📚 تم نشر المشهد في المكتبة العامة!'); loadPublicScenes(); });
+
+    function copyInviteCode(){ socket.emit('invite_room'); }
+    socket.on('invite_code', ({code})=>{ const link=location.origin+'/?room='+encodeURIComponent(code); navigator.clipboard?.writeText(link).catch(()=>{}); alert('🔗 كود الدعوة: '+code+'\n\nتم نسخ رابط الدعوة إذا سمح المتصفح. أرسله لخويك.'); });
+    function updateTurnUI() {
+      if (!roomState || !roomState.turns || roomState.turns.length === 0) return;
+
+      const currentTurn = roomState.turns[roomState.currentTurnIndex];
+      const banner = document.getElementById('turn-banner');
+      const recBtn = document.getElementById('rec-btn');
+
+      if (roomState.isCompleted) {
+        banner.innerHTML = `<h2 class="text-xl font-extrabold text-green-400">🎉 اكتمل تسجيل جميع حوارات هذا المشهد!</h2><p class="text-slate-400 text-xs">اضغطوا الزر الملون بالأسفل لمشاهدة العمل المكتمل بالدوبلاج النهائي.</p>`;
+        document.getElementById('watch-full-btn').classList.remove('hidden');
+        recBtn.disabled = true;
+        return;
+      }
+
+      const isMyTurn = currentTurn.playerId === mySocketId;
+
+      videoEl.pause();
+      videoEl.muted = false;
+      videoEl.currentTime = currentTurn.startTime;
+      updateAudioPreview(currentTurn);
+
+      banner.innerHTML = `
+        <div class="text-xs font-bold text-yellow-400 mb-1">الحوار ${currentTurn.index + 1} من ${roomState.turns.length} (التوقيت: ${formatTime(currentTurn.startTime)} - ${formatTime(currentTurn.endTime)})</div>
+        <div class="text-lg font-black text-white">الدور الآن لشخصية: <span class="text-yellow-400 font-extrabold">${currentTurn.characterName}</span> (${currentTurn.playerUsername})</div>
+        ${isMyTurn ? '<p class="text-xs text-green-400 font-bold mt-1 animate-bounce">🎙️ هذا حوار شخصيتك المحددة! اضغط تسجيل وتكلم بصوتك.</p>' : `<p class="text-xs text-slate-400 mt-1">⏳ بانتظار (${currentTurn.playerUsername}) ليؤدي حوار شخصيته...</p>`}
+      `;
+
+      recBtn.disabled = !isMyTurn;
+      if (!isMyTurn) {
+        document.getElementById('rec-text').innerText = 'المايك مغلق (ليس دور شخصيتك)';
+      } else {
+        document.getElementById('rec-text').innerText = 'اضغط للتسجيل بشخصيتك 🎙️';
+      }
+    }
+
+    function handleRecClick() {
+      if (!isRecording) {
+        socket.emit('start_recording_sync');
+      }
+    }
+
+    socket.on('on_start_recording', async ({ turn, recorderSocketId }) => {
+      videoEl.currentTime = turn.startTime;
+
+      if (recorderSocketId === mySocketId) {
+        videoEl.muted = true;
+        videoEl.play();
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        myMediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        myMediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        myMediaRecorder.onstop = () => {
+          try { myMediaRecorder.stream.getTracks().forEach(t => t.stop()); } catch(e) {}
+          const blob = new Blob(audioChunks, { type: 'audio/webm' });
+          const reader = new FileReader();
+          reader.readAsDataURL(blob);
+          reader.onloadend = async () => {
+            const actualDuration = Math.max(0, (performance.now() - recordingStartedAt) / 1000);
+            const metrics = await analyzeRecordedBlob(blob);
+            socket.emit('stop_recording_sync', { audioBase64: reader.result, duration: actualDuration, metrics });
+          };
+        };
+
+        myMediaRecorder.start(100);
+        recordingStartedAt = performance.now();
+        isRecording = true;
+        document.getElementById('stop-rec-btn').classList.remove('hidden');
+        document.getElementById('rec-text').innerText = 'جاري تسجيل صوت شخصيتك... 🔴';
+        document.getElementById('rec-btn').classList.replace('bg-red-600', 'bg-amber-600');
+
+      } else {
+        videoEl.muted = true;
+        videoEl.play();
+        document.getElementById('rec-text').innerText = `جاري دوبلاج شخصية (${turn.characterName})... 🔴`;
+      }
+
+      const durationMs = (turn.endTime - turn.startTime) * 1000;
+      clearTimeout(turnTimer);
+      turnTimer = setTimeout(() => {
+        videoEl.pause();
+        if (isRecording && recorderSocketId === mySocketId) {
+          stopMyRecordingEarly(true);
+        }
+      }, durationMs);
+    });
+
+    socket.on('on_stop_recording', ({ turnIndex, recordings }) => {
+      if (roomState) roomState.recordings = recordings;
+
+      const currentTurn = roomState.turns[roomState.currentTurnIndex];
+      document.getElementById('rec-text').innerText = 'تم تسجيل الحوار بنجاح ✓';
+      document.getElementById('rec-btn').classList.replace('bg-amber-600', 'bg-red-600');
+      document.getElementById('rec-btn').disabled = true;
+      document.getElementById('stop-rec-btn').classList.add('hidden');
+
+      if (currentTurn.playerId === mySocketId) {
+        document.getElementById('listen-btn').classList.remove('hidden');
+        document.getElementById('retry-btn').classList.remove('hidden');
+        document.getElementById('continue-btn').classList.remove('hidden');
+      }
+    });
+
+    function updateAudioPreview(turn){
+      const status=document.getElementById('audio-preview-status');
+      const btn=document.getElementById('preview-original-btn');
+      if(!turn){btn.disabled=true;return;}
+      btn.disabled=false;
+      status.textContent=`🎧 جاهز: ${formatTime(turn.startTime)} → ${formatTime(turn.endTime)}`;
+    }
+
+    async function previewOriginalTurn(){
+      if(isRecording) return alert('أوقف التسجيل أولاً.');
+      if(!roomState?.turns?.length) return;
+      const turn=roomState.turns[roomState.currentTurnIndex];
+      if(!turn) return;
+      clearTimeout(originalPreviewTimer);
+      if(activeDubAudio){activeDubAudio.pause();activeDubAudio=null;}
+      videoEl.pause();
+      videoEl.muted=false;
+      videoEl.currentTime=turn.startTime;
+      document.getElementById('audio-preview-status').textContent='🔊 يتم تشغيل الحوار الأصلي...';
+      await videoEl.play().catch(()=>{});
+      originalPreviewTimer=setTimeout(()=>{
+        videoEl.pause();
+        videoEl.currentTime=turn.startTime;
+        document.getElementById('audio-preview-status').textContent='🎧 انتهت المعاينة';
+      },Math.max(100, (turn.endTime-turn.startTime)*1000));
+    }
+
+    function stopMyRecordingEarly(auto=false){
+      if(!isRecording || !myMediaRecorder) return;
+      clearTimeout(turnTimer);
+      try{ myMediaRecorder.stop(); }catch(e){}
+      isRecording=false;
+      videoEl.pause();
+      videoEl.muted=true;
+      document.getElementById('stop-rec-btn').classList.add('hidden');
+      document.getElementById('rec-text').innerText=auto?'انتهى وقت الحوار، جاري حفظ التسجيل...':'تم إيقاف التسجيل، جاري حفظ الجزء المسجل...';
+    }
+
+    async function analyzeRecordedBlob(blob){
+      try{
+        const ab=await blob.arrayBuffer();
+        const ac=new (window.AudioContext||window.webkitAudioContext)();
+        const buf=await ac.decodeAudioData(ab.slice(0));
+        let sum=0, peak=0, active=0, samples=0;
+        const ch=buf.getChannelData(0), step=Math.max(1,Math.floor(ch.length/12000));
+        for(let i=0;i<ch.length;i+=step){const v=Math.abs(ch[i]);sum+=v*v;peak=Math.max(peak,v);samples++;if(v>0.025)active++;}
+        const rms=Math.sqrt(sum/Math.max(1,samples));
+        await ac.close();
+        return {rms,peak,activeRatio:active/Math.max(1,samples)};
+      }catch(e){return {rms:0,peak:0,activeRatio:0};}
+    }
+
+    function triggerListenBroadcast() {
+      socket.emit('broadcast_listen_turn');
+    }
+
+    socket.on('on_play_listen_turn', ({ turn, audioData }) => {
+      videoEl.currentTime = turn.startTime;
+      videoEl.muted = true;
+      videoEl.pause();
+      if (activeDubAudio) activeDubAudio.pause();
+      activeDubAudio = new Audio(audioData);
+      await activeDubAudio.play().catch(()=>{});
+      const durationMs = (turn.endTime - turn.startTime) * 1000;
+      setTimeout(() => { videoEl.pause(); videoEl.muted = false; }, durationMs);
+    });
+
+    function retryRecording() {
+      resetControlButtons();
+      document.getElementById('rec-btn').disabled = false;
+      updateTurnUI();
+    }
+
+    function nextTurnBroadcast() {
+      socket.emit('next_turn');
+    }
+
+    socket.on('turn_changed', ({ currentTurnIndex, isCompleted }) => {
+      if (roomState) {
+        roomState.currentTurnIndex = currentTurnIndex;
+        roomState.isCompleted = isCompleted;
+        resetControlButtons();
+        updateTurnUI();
+        if(isCompleted){ setTimeout(()=>{ renderAndDownloadDubbedVideo().catch(()=>{}); }, 700); }
+      }
+    });
+
+    function resetControlButtons() {
+      document.getElementById('stop-rec-btn').classList.add('hidden');
+      document.getElementById('listen-btn').classList.add('hidden');
+      document.getElementById('retry-btn').classList.add('hidden');
+      document.getElementById('continue-btn').classList.add('hidden');
+    }
+
+    function triggerFullDubBroadcast() {
+      socket.emit('start_full_dub_sync');
+    }
+
+    socket.on('on_start_full_dub', ({ recordings, turns }) => {
+      showDubResultScore(recordings, turns);
+      videoEl.currentTime = 0;
+      videoEl.muted = false;
+      videoEl.play();
+
+      const playedMap = {};
+      videoEl.ontimeupdate = () => {
+        const curTime = videoEl.currentTime;
+        const active = turns.some((turn, idx) => curTime >= turn.startTime && curTime <= turn.endTime && recordings[idx]);
+        videoEl.muted = active;
+        turns.forEach((turn, idx) => {
+          const rec = recordings[idx];
+          if (rec && curTime >= turn.startTime && curTime <= turn.endTime && !playedMap[idx]) {
+            playedMap[idx] = true;
+            const audio = new Audio(rec.audioData);
+            audio.play().catch(()=>{});
+          }
+        });
+      };
+      videoEl.onended = () => { videoEl.muted = false; };
+    });
+
+
+    // ===== التحليل التلقائي للمشاهد الطويلة + تثبيت هوية المتحدث =====
+    // ملاحظة: هذا ليس Speaker-ID سحرياً؛ هو بصمة صوت محلية تعتمد على خصائص الطيف
+    // وتستخدم تجميعاً متماسكاً بدلاً من (المقطع 1 = شخصية 1، المقطع 2 = شخصية 2...).
+    async function runAutoSceneDetection() {
+      if (!uploadedCustomVideoUrl || !videoEl.src) return alert('ارفع الفيديو أولاً.');
+      const status = document.getElementById('auto-status');
+      status.textContent = '⏳ جاري اكتشاف الكلام ثم استخراج بصمات الصوت...';
+      try {
+        const stream = videoEl.captureStream ? videoEl.captureStream() : videoEl.mozCaptureStream?.();
+        if (!stream || !stream.getAudioTracks().length) throw new Error('المتصفح لا يدعم قراءة مسار صوت الفيديو.');
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0.2;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+        const freq = new Uint8Array(analyser.frequencyBinCount);
+
+        const wasMuted = videoEl.muted;
+        const oldTime = videoEl.currentTime;
+        videoEl.muted = true;
+        videoEl.currentTime = 0;
+        await videoEl.play();
+
+        // 1) اكتشاف الكلام عبر RMS مع threshold تكيفي.
+        const samples = [];
+        const started = performance.now();
+        let raf;
+        await new Promise(resolve => {
+          const tick = () => {
+            analyser.getByteTimeDomainData(data);
+            let sum = 0;
+            for (let i=0;i<data.length;i++) { const v=(data[i]-128)/128; sum += v*v; }
+            samples.push({ t: videoEl.currentTime, rms: Math.sqrt(sum/data.length) });
+            if (videoEl.ended || performance.now()-started > Math.max(30000,(videoEl.duration||300)*1100)) return resolve();
+            raf=requestAnimationFrame(tick);
+          };
+          tick();
+        });
+        cancelAnimationFrame(raf);
+        videoEl.pause();
+        videoEl.currentTime = oldTime;
+        videoEl.muted = wasMuted;
+
+        const rmsVals=samples.map(x=>x.rms).sort((a,b)=>a-b);
+        const noise=rmsVals[Math.floor(rmsVals.length*0.2)] || 0.01;
+        const threshold=Math.max(0.012, noise*1.65);
+        const raw=samples.filter(x=>x.rms>threshold);
+        const segments=[];
+        if(raw.length){
+          let start=raw[0].t, prev=raw[0].t;
+          for(const x of raw.slice(1)){
+            if(x.t-prev>0.38){
+              if(prev-start>=0.35) segments.push({startTime:Math.max(0,start-0.10),endTime:Math.min(videoEl.duration,prev+0.16)});
+              start=x.t;
+            }
+            prev=x.t;
+          }
+          if(prev-start>=0.35) segments.push({startTime:Math.max(0,start-0.10),endTime:Math.min(videoEl.duration,prev+0.16)});
+        }
+
+        const merged=[];
+        for(const seg of segments){
+          const lastSeg=merged[merged.length-1];
+          if(lastSeg && seg.startTime-lastSeg.endTime<0.30) lastSeg.endTime=seg.endTime;
+          else merged.push({...seg});
+        }
+
+        if (!merged.length) throw new Error('لم يتم العثور على كلام واضح. جرّب مقطعاً بصوت أوضح.');
+
+        // 2) بصمة صوت لكل مقطع. نأخذ عدة لقطات من الجزء الأوسط، وليس لقطة واحدة.
+        const fingerprints=[];
+        const wait = ms => new Promise(r=>setTimeout(r,ms));
+        const makeFingerprint = () => {
+          analyser.getByteTimeDomainData(data);
+          analyser.getByteFrequencyData(freq);
+          let energy=0, zc=0;
+          for(let i=0;i<data.length;i++){
+            const v=(data[i]-128)/128; energy += v*v;
+            if(i>0 && ((data[i]-128)*(data[i-1]-128)<0)) zc++;
+          }
+          let weighted=0, total=0, high=0, low=0;
+          for(let i=0;i<freq.length;i++){
+            const v=freq[i]/255, f=i*audioCtx.sampleRate/(analyser.fftSize*2);
+            weighted += f*v; total += v;
+            if(f<1000) low += v;
+            if(f>2500) high += v;
+          }
+          const centroid = total ? weighted/total : 0;
+          return [
+            Math.log10(1e-5 + energy/data.length),
+            zc/data.length,
+            centroid/4000,
+            low/(total+1e-6),
+            high/(total+1e-6)
+          ];
+        };
+
+        for(let i=0;i<merged.length && i<300;i++){
+          const seg=merged[i];
+          videoEl.currentTime = Math.min(videoEl.duration-0.05, seg.startTime + Math.max(0.08,(seg.endTime-seg.startTime)*0.35));
+          await videoEl.play();
+          const frames=[];
+          const sampleUntil=performance.now()+Math.min(650,Math.max(250,(seg.endTime-seg.startTime)*500));
+          while(performance.now()<sampleUntil){
+            frames.push(makeFingerprint());
+            await wait(35);
+          }
+          videoEl.pause();
+          const avg=frames[0].map((_,j)=>frames.reduce((a,f)=>a+f[j],0)/frames.length);
+          fingerprints.push({ ...seg, feature:avg });
+          status.textContent=`🎙️ بصمة الصوت: ${i+1}/${Math.min(merged.length,300)}`;
+        }
+
+        // 3) توحيد المقياس ثم clustering. عدد المتحدثين يختار من البيانات نفسها،
+        // مع عقوبة تمنع تقسيم صوت واحد إلى شخصيات كثيرة بسبب اختلاف النبرة.
+        const means = fingerprints[0].feature.map((_,j)=>fingerprints.reduce((a,x)=>a+x.feature[j],0)/fingerprints.length);
+        const stds = means.map((m,j)=>Math.sqrt(fingerprints.reduce((a,x)=>a+Math.pow(x.feature[j]-m,2),0)/fingerprints.length)+1e-6);
+        const vecs=fingerprints.map(x=>x.feature.map((v,j)=>(v-means[j])/stds[j]));
+        const dist=(a,b)=>Math.sqrt(a.reduce((sum,v,j)=>sum+Math.pow(v-b[j],2),0));
+
+        // Agglomerative clustering: لا ننشئ مجموعة جديدة إلا إذا كان الصوت مختلفاً بوضوح.
+        const clusters=[];
+        const nearest=[];
+        vecs.forEach((v,i)=>{
+          if(!clusters.length){ clusters.push({center:[...v], members:[i]}); return; }
+          let best=-1, bestD=Infinity;
+          clusters.forEach((c,ci)=>{ const d=dist(v,c.center); if(d<bestD){bestD=d;best=ci;} });
+          nearest.push(bestD);
+          // threshold محافظ. إذا تغيرت النبرة قليلاً يبقى نفس المتحدث.
+          const adaptiveThreshold = 1.05;
+          if(bestD <= adaptiveThreshold || clusters.length>=6){
+            const c=clusters[best]; c.members.push(i);
+            c.center=c.center.map((x,j)=>x+(v[j]-x)/c.members.length);
+          } else clusters.push({center:[...v],members:[i]});
+        });
+
+        // دمج المجموعات الصغيرة إذا كانت أقرب لمجموعة أخرى، لمنع ظهور شخصية ثالثة بسبب مقطع شاذ.
+        for(let pass=0;pass<3;pass++){
+          for(let ci=clusters.length-1;ci>=0;ci--){
+            const c=clusters[ci];
+            if(c.members.length>1) continue;
+            let best=-1,bestD=Infinity;
+            clusters.forEach((other,oi)=>{ if(oi===ci)return; const d=dist(c.center,other.center); if(d<bestD){bestD=d;best=oi;} });
+            if(best>=0 && bestD<1.45){
+              const target=clusters[best];
+              c.members.forEach(idx=>target.members.push(idx));
+              target.center=target.members.reduce((acc,idx)=>acc.map((x,j)=>x+vecs[idx][j]),[0,0,0,0,0]).map(x=>x/target.members.length);
+              clusters.splice(ci,1);
+            }
+          }
+        }
+
+        // إذا دمج التجميع كل شيء في صوت واحد، نختبر وجود فصل واضح بين صوتين قبل الاستسلام.
+        // هذا يمنع حالة: "شخصية واحدة فقط" في أغلب الحوارات، مع الحفاظ على صوت واحد إذا لم توجد إشارة كافية.
+        if (clusters.length === 1 && vecs.length >= 4) {
+          let a=0,b=1,maxD=0;
+          for(let i=0;i<vecs.length;i++) for(let j=i+1;j<vecs.length;j++){ const d=dist(vecs[i],vecs[j]); if(d>maxD){maxD=d;a=i;b=j;} }
+          if(maxD > 1.55){
+            let c1=[...vecs[a]], c2=[...vecs[b]], g1=[], g2=[];
+            for(let pass=0;pass<6;pass++){
+              g1=[];g2=[];
+              vecs.forEach((v,i)=>(dist(v,c1)<=dist(v,c2)?g1:g2).push(i));
+              if(!g1.length||!g2.length) break;
+              c1=c1.map((_,j)=>g1.reduce((sum,i)=>sum+vecs[i][j],0)/g1.length);
+              c2=c2.map((_,j)=>g2.reduce((sum,i)=>sum+vecs[i][j],0)/g2.length);
+            }
+            if(g1.length && g2.length){ clusters.length=0; clusters.push({center:c1,members:g1},{center:c2,members:g2}); }
+          }
+        }
+
+        const labels=new Array(fingerprints.length);
+        clusters.forEach((c,ci)=>c.members.forEach(idx=>labels[idx]=ci+1));
+        autoDetectedSegments=fingerprints.map((s,i)=>({
+          index:i,startTime:+s.startTime.toFixed(2),endTime:+s.endTime.toFixed(2),
+          characterName:`الشخصية ${labels[i]}`,
+          speakerCluster:labels[i]
+        }));
+        customSegments=autoDetectedSegments;
+        renderCustomSegmentsList();
+        const chars=[...new Set(customSegments.map(s=>s.characterName))];
+        status.textContent=`✅ تم اكتشاف ${customSegments.length} حوار وربطها بـ ${chars.length} أصوات ثابتة. إذا كان صوت الشخصية يعود لاحقاً سيبقى على نفس الشخصية.`;
+        alert(`تم التحليل. تم اكتشاف ${chars.length} شخصيات صوتية تقريبية، وليس شخصية جديدة لكل رجعة للكلام. راجع النتائج قبل النشر.`);
+      } catch(err) {
+        console.error(err);
+        document.getElementById('auto-status').textContent='⚠️ تعذر تحليل بصمات المتحدثين في هذا المتصفح.';
+        alert('تعذر التحليل التلقائي: '+err.message);
+      } finally {
+        try { source.disconnect(); analyser.disconnect(); await audioCtx.close(); } catch(e) {}
+      }
+    }
+
+    function showDubResultScore(recordings, turns) {
+      const panel=document.getElementById('result-panel'); panel.classList.remove('hidden');
+      if(!turns?.length){document.getElementById('match-score').textContent='0%';return;}
+      const entries=turns.map((t,i)=>({t,rec:recordings[i]}));
+      let coverageSum=0, timingSum=0, activitySum=0, qualitySum=0;
+      entries.forEach(({t,rec})=>{
+        if(!rec){return;}
+        const expected=Math.max(.25,t.endTime-t.startTime);
+        const actual=Math.max(.01,Number(rec.duration)||0);
+        const coverage=Math.min(1,actual/expected);
+        const timing=Math.max(0,1-Math.abs(actual-expected)/expected);
+        const active=rec.metrics?.activeRatio ?? 0;
+        const activity=Math.min(1,active/0.12);
+        const rms=rec.metrics?.rms ?? 0;
+        const quality=rms>0.015 ? Math.min(1,rms/0.09) : 0;
+        coverageSum+=coverage; timingSum+=timing; activitySum+=activity; qualitySum+=quality;
+      });
+      const completed=entries.filter(x=>x.rec).length;
+      const coverageRatio=completed/turns.length;
+      const avgCoverage=completed?coverageSum/completed:0;
+      const avgTiming=completed?timingSum/completed:0;
+      const avgActivity=completed?activitySum/completed:0;
+      const avgQuality=completed?qualitySum/completed:0;
+      // لا يمكن للنظام الحكم على التمثيل صوتياً، لذلك لا نعطي 100% إلا عند اكتمال كل المقاطع + أداء كامل ونشط.
+      const score=Math.round(Math.max(0,Math.min(100,
+        coverageRatio*35 + avgCoverage*25 + avgTiming*15 + avgActivity*15 + avgQuality*10
+      )));
+      document.getElementById('match-score').textContent=score+'%';
+      document.getElementById('score-details').textContent=`اكتمال الحوارات ${Math.round(coverageRatio*100)}% • تغطية مدة الأداء ${Math.round(avgCoverage*100)}% • دقة التوقيت ${Math.round(avgTiming*100)}% • نشاط الصوت ${Math.round(avgActivity*100)}%.`;
+      document.getElementById('render-result-btn').classList.remove('hidden');
+    }
+
+    // حفظ مدة التسجيل في المستقبل: يتم استنتاجها من Blob إن أمكن.
+    // ===== إخراج ملف فيديو قابل للتحميل =====
+    async function renderAndDownloadDubbedVideo(){
+      if(!roomState?.recordings || !roomState?.turns?.length) return alert('لا توجد تسجيلات مكتملة بعد.');
+      const btn=document.getElementById('render-result-btn'), status=document.getElementById('render-status'); btn.disabled=true; status.textContent='⏳ تجهيز المشهد فقط (لن ننتظر مدة الفيديو الأصلي كاملة)...';
+      try{
+        if(!videoEl.captureStream) throw new Error('captureStream غير مدعوم. استخدم Chrome/Edge.');
+        const start=Math.max(0,Math.min(...roomState.turns.map(t=>t.startTime))-0.15), end=Math.min(videoEl.duration||Infinity,Math.max(...roomState.turns.map(t=>t.endTime))+0.35);
+        const vstream=videoEl.captureStream(); const ctx=new (window.AudioContext||window.webkitAudioContext)(); const dest=ctx.createMediaStreamDestination();
+        const originalSource=ctx.createMediaStreamSource(vstream), originalGain=ctx.createGain(); originalSource.connect(originalGain).connect(dest);
+        const decoded=[];
+        for(let i=0;i<roomState.turns.length;i++){const rec=roomState.recordings[i];if(!rec)continue;const b64=rec.audioData.split(',')[1]||rec.audioData,bin=atob(b64),arr=new Uint8Array(bin.length);for(let j=0;j<bin.length;j++)arr[j]=bin.charCodeAt(j);decoded.push({buf:await ctx.decodeAudioData(arr.buffer),turn:roomState.turns[i]});}
+        const dubbedBus=ctx.createGain();dubbedBus.connect(dest);
+        decoded.forEach(({buf,turn})=>{const src=ctx.createBufferSource();src.buffer=buf;src.connect(dubbedBus);src.start(ctx.currentTime+Math.max(0,turn.startTime-start));});
+        const mixed=new MediaStream([...vstream.getVideoTracks(),...dest.stream.getAudioTracks()]); const mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')?'video/webm;codecs=vp9,opus':'video/webm'; const mr=new MediaRecorder(mixed,{mimeType:mime}),chunks=[]; mr.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+        const done=new Promise(r=>mr.onstop=r); videoEl.currentTime=start; videoEl.muted=false;
+        const muteWindows=roomState.turns.filter((t,i)=>roomState.recordings[i]); videoEl.ontimeupdate=()=>{const t=videoEl.currentTime;originalGain.gain.value=muteWindows.some(x=>t>=x.startTime&&t<=x.endTime)?0:1;};
+        mr.start(200); await videoEl.play(); await new Promise(resolve=>{const check=()=>{if(videoEl.currentTime>=end||videoEl.ended)resolve();else requestAnimationFrame(check)};check();}); videoEl.pause(); mr.stop(); await done; originalSource.disconnect(); originalGain.disconnect(); dubbedBus.disconnect(); await ctx.close();
+        const blob=new Blob(chunks,{type:'video/webm'}); if(resultObjectUrl)URL.revokeObjectURL(resultObjectUrl); resultObjectUrl=URL.createObjectURL(blob); const link=document.getElementById('download-result'); link.href=resultObjectUrl; link.classList.remove('hidden'); link.download=(roomState.title||'choicer-scene')+'.webm'; link.click(); status.textContent='✅ تم تجهيز وتحميل المشهد فقط، بدون انتظار نهاية الفيديو الأصلي.';
+      }catch(err){console.error(err);status.textContent='⚠️ تعذر إنشاء الملف: '+err.message;alert('تعذر إنشاء النتيجة. جرّب Chrome/Edge.');}finally{btn.disabled=false;}
+    }
+
+    loadPublicScenes();
+    const savedRoom=localStorage.getItem('choicerRoom'), savedName=localStorage.getItem('choicerUsername');
+    if(savedRoom && savedName){ setTimeout(()=>{ document.getElementById('username').value=savedName; document.getElementById('room-id').value=savedRoom; joinRoom(); },300); }
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      const ms = Math.floor((sec % 1) * 10);
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms}`;
+    }
+  </script>
+</body>
+</html>
