@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
+const { spawn } = require('child_process');
 
 const app = express();
 const server = http.createServer(app);
@@ -40,6 +41,32 @@ function makeInviteCode() { return Math.random().toString(36).slice(2, 8).toUppe
 
 const rooms = {};
 app.get('/api/presets', (req,res)=>res.json(presetScenes));
+
+function resolveUploadPath(videoUrl){
+  if(!videoUrl || !videoUrl.startsWith('/uploads/')) return null;
+  const full=path.join(uploadsDir,path.basename(videoUrl));
+  return fs.existsSync(full)?full:null;
+}
+function runDiarization(videoPath){
+  return new Promise((resolve,reject)=>{
+    const out=path.join(dataDir,'diarization-'+Date.now()+'-'+Math.random().toString(36).slice(2,7)+'.json');
+    const py=process.env.PYTHON||process.env.PYTHON_BIN||'python';
+    const child=spawn(py,[path.join(__dirname,'model','diarize.py'),videoPath,out],{env:process.env});
+    let stderr=''; child.stderr.on('data',d=>stderr+=d.toString());
+    child.on('error',()=>reject(new Error('Python غير متوفر. ثبّت Python 3.10/3.11 ومتطلبات model/requirements.txt')));
+    child.on('close',code=>{
+      if(code!==0)return reject(new Error(stderr.trim().split('\n').slice(-5).join(' ')||'فشل Speaker Diarization'));
+      try{const data=JSON.parse(fs.readFileSync(out,'utf8'));fs.unlinkSync(out);resolve(data)}catch(e){reject(e)}
+    });
+  });
+}
+app.post('/api/analyze-scene', async (req,res)=>{
+  try{
+    const full=resolveUploadPath(req.body?.videoUrl); if(!full)return res.status(400).json({error:'ملف الفيديو غير صالح أو غير مرفوع على السيرفر'});
+    const segments=await runDiarization(full);
+    res.json({segments,engine:'pyannote-speaker-diarization-3.1'});
+  }catch(e){console.error('diarization:',e);res.status(500).json({error:e.message})}
+});
 app.get('/api/scenes', (req,res)=>res.json(readLibrary().sort((a,b)=>b.createdAt-a.createdAt)));
 app.post('/api/upload-video', upload.single('video'), (req,res)=>{
   if (!req.file) return res.status(400).json({error:'No video uploaded'});
@@ -65,17 +92,17 @@ io.on('connection', socket => {
   let currentRoom = null, currentUser = null, currentPlayerKey = null;
 
   function autoAssignCharacters(room) {
-    if (!room.players.length || !room.characters.length) {
-      room.players.forEach(p=>{p.assignedCharacters=[];p.assignedCharacter=null;});
-      return;
-    }
-    room.players.forEach(p=>{p.assignedCharacters=[];p.assignedCharacter=null;});
-    room.characters.forEach((character,index)=>room.players[index % room.players.length].assignedCharacters.push(character));
+    if(!room.players.length) return;
+    room.players.forEach(p=>{p.assignedCharacters=[];p.assignedCharacterNames=[];p.assignedCharacter=null;});
+    const keys=[]; const seen=new Set(); const nameByKey={};
+    (room.turns||[]).forEach(t=>{const k=t.speakerId||t.characterName;if(k && !seen.has(k)){seen.add(k);keys.push(k);nameByKey[k]=t.characterName||('الشخصية '+(keys.length));}});
+    const groups=keys.length?keys:(room.characters||[]);
+    groups.forEach((key,index)=>{const p=room.players[index % room.players.length];p.assignedCharacters.push(key);p.assignedCharacterNames=p.assignedCharacterNames||[];p.assignedCharacterNames.push(nameByKey[key]||key);});
     room.players.forEach(p=>p.assignedCharacter=p.assignedCharacters[0]||null);
     room.turns.forEach(turn=>{
-      const p=room.players.find(x=>(x.assignedCharacters||[]).includes(turn.characterName));
-      turn.playerId=p?p.id:null;
-      turn.playerUsername=p?p.username:'بانتظار مؤدي';
+      const key=turn.speakerId||turn.characterName;
+      const p=room.players.find(x=>(x.assignedCharacters||[]).includes(key));
+      turn.playerId=p?p.id:null; turn.playerUsername=p?p.username:'بانتظار مؤدي';
     });
   }
 
@@ -95,7 +122,7 @@ io.on('connection', socket => {
 
   socket.on('set_custom_scene',({videoUrl,turns,characters,title})=>{
     if(!currentRoom||!rooms[currentRoom])return; const room=rooms[currentRoom]; if(socket.id!==room.host)return;
-    room.videoUrl=videoUrl; room.turns=(turns||[]).map((t,i)=>({...t,index:i})); room.characters=characters||[]; room.title=title||'مشهد جديد'; room.currentTurnIndex=0; room.recordings={}; room.isCompleted=false;
+    room.videoUrl=videoUrl; room.turns=(turns||[]).map((t,i)=>({...t,index:i})); room.characters=characters||[...new Set(room.turns.map(t=>t.characterName).filter(Boolean))]; room.title=title||'مشهد جديد'; room.currentTurnIndex=0; room.recordings={}; room.isCompleted=false;
     autoAssignCharacters(room); io.to(currentRoom).emit('room_updated',room);
   });
 

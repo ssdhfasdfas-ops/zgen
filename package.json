@@ -1,7 +1,7 @@
 {
   "name": "choicer-dubbing-app",
-  "version": "3.0.0",
-  "description": "Real-time Synchronized Multiplayer Web Dubbing Platform with Custom Timeline & Scene Library",
+  "version": "4.0.0",
+  "description": "Choicer Studio with server-side Speaker Diarization, aligned audio waveforms, fast auto scene analysis, and multiplayer role assignment",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

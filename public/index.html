@@ -144,7 +144,11 @@
             <div><div class="text-xs font-black text-yellow-300">🔊 معاينة الحوار الأصلي</div><div id="audio-preview-label" class="text-[10px] text-slate-500 mt-1">اختر الحوار ثم اسمعه قبل التسجيل</div></div>
             <button id="preview-original-btn" onclick="previewOriginalTurn()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-xs font-bold">▶️ اسمع الحوار</button>
           </div>
-          <div id="waveform" class="mt-3 flex items-end gap-1 h-10 overflow-hidden" aria-label="موجة صوت الحوار الأصلي"></div>
+          <div class="mt-3 bg-slate-900 rounded-lg p-2 border border-slate-800">
+  <div class="flex justify-between text-[10px] text-slate-500 mb-1"><span>الأصلي</span><span>الدبلجة</span></div>
+  <canvas id="waveform" width="1000" height="110" class="w-full h-28 rounded bg-slate-950" aria-label="مقارنة موجة الصوت الأصلي والدبلجة"></canvas>
+  <div id="waveform-status" class="text-[10px] text-slate-600 mt-1">جاري تجهيز الموجة...</div>
+</div>
         </div>
 
         <!-- كرت حالة الحوار الحالي -->
@@ -220,6 +224,10 @@
     let autoDetectedSegments = [];
     let resultObjectUrl = null;
     let removeOriginalVoices = false;
+    let originalWaveCache = new Map();
+    let currentRecordingWave = [];
+    let liveWaveRAF = null;
+    let recordingBlobForWave = null;
 
     socket.on('connect', () => { mySocketId = socket.id; });
 
@@ -316,7 +324,7 @@
       if (data.videoUrl) {
         uploadedCustomVideoUrl = data.videoUrl;
         videoEl.src = data.videoUrl;
-        alert('تم رفع المقطع! استعمل مشغل الفيديو لتحديد توقيتات حوار كل شخصية.');
+        originalWaveCache.clear(); customSegments=[]; renderCustomSegmentsList(); document.getElementById('auto-status').textContent='جاهز: اضغط التحليل التلقائي لاستخدام Speaker Diarization الحقيقي.'; renderWaveform({startTime:0,endTime:Math.min(10,videoEl.duration||10)}); alert('تم رفع المقطع! يمكنك الآن تشغيل التحليل التلقائي الحقيقي.');
       }
     });
 
@@ -408,7 +416,7 @@
             <span>👤 ${p.username} ${p.id === mySocketId ? '(أنت)' : ''}</span>
           </div>
           <div class="text-xs text-yellow-300/80 bg-slate-900/60 p-1.5 rounded border border-slate-700/50">
-            🎭 الأدوار: <strong class="text-white">${(p.assignedCharacters && p.assignedCharacters.length ? p.assignedCharacters.join('، ') : (p.assignedCharacter || 'بانتظار تحديد المشهد'))}</strong>
+            🎭 الأدوار: <strong class="text-white">${(p.assignedCharacterNames && p.assignedCharacterNames.length ? p.assignedCharacterNames.join('، ') : (p.assignedCharacter || 'بانتظار تحديد المشهد'))}</strong>
           </div>
         `;
         playersList.appendChild(item);
@@ -443,7 +451,7 @@
       const isMyTurn = currentTurn.playerId === mySocketId;
 
       videoEl.currentTime = currentTurn.startTime;
-      renderWaveform(currentTurn);
+      renderWaveform(currentTurn, null);
       document.getElementById('audio-preview-label').textContent = `الحوار ${currentTurn.index + 1}: ${formatTime(currentTurn.startTime)} - ${formatTime(currentTurn.endTime)} • اسمعه قبل التسجيل`;
 
       banner.innerHTML = `
@@ -477,13 +485,35 @@
       document.getElementById('rec-text').innerText = 'جاري حفظ التسجيل... ⏳';
     }
 
-    function renderWaveform(turn) {
-      const box=document.getElementById('waveform'); if(!box) return;
-      box.innerHTML='';
-      for(let i=0;i<42;i++){
-        const h=10 + Math.round(24*(0.25+0.75*Math.abs(Math.sin((i+1)*1.71 + turn.startTime*2.3))));
-        const b=document.createElement('span'); b.className='flex-1 min-w-[2px] rounded-t bg-blue-500/70'; b.style.height=h+'px'; box.appendChild(b);
-      }
+    async function renderWaveform(turn, recordedBlob=null) {
+      const canvas=document.getElementById('waveform'); if(!canvas||!turn)return;
+      const ctx=canvas.getContext('2d'), W=canvas.width, H=canvas.height;
+      ctx.clearRect(0,0,W,H); ctx.fillStyle='#020617'; ctx.fillRect(0,0,W,H);
+      ctx.strokeStyle='#334155'; ctx.beginPath(); ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); ctx.stroke();
+      document.getElementById('waveform-status').textContent='⏳ قراءة موجة الصوت الأصلية...';
+      try {
+        let values=originalWaveCache.get(turn.startTime+'-'+turn.endTime);
+        if(!values){
+          const resp=await fetch(videoEl.currentSrc||videoEl.src); const ab=await resp.arrayBuffer();
+          const ac=new (window.AudioContext||window.webkitAudioContext)(); const audio=await ac.decodeAudioData(ab.slice(0));
+          const ch=audio.getChannelData(0), a=Math.max(0,Math.floor(turn.startTime*audio.sampleRate)), b=Math.min(ch.length,Math.ceil(turn.endTime*audio.sampleRate));
+          const n=140, step=Math.max(1,Math.floor((b-a)/n)); values=[];
+          for(let i=0;i<n;i++){let sum=0,peak=0;for(let j=a+i*step;j<Math.min(b,a+(i+1)*step);j++){const v=Math.abs(ch[j]);sum+=v;peak=Math.max(peak,v)} values.push(Math.max(peak,Math.sqrt(sum/Math.max(1,step))))}
+          originalWaveCache.set(turn.startTime+'-'+turn.endTime,values); await ac.close();
+        }
+        const mid=H*0.28, amp=H*0.22; ctx.fillStyle='rgba(59,130,246,.9)';
+        values.forEach((v,i)=>{const x=i*W/values.length;const h=Math.max(2,v*amp*4);ctx.fillRect(x,mid-h/2,Math.max(1,W/values.length-.5),h)});
+        ctx.fillStyle='#64748b';ctx.font='10px sans-serif';ctx.fillText('الأصلي',8,12);
+        if(recordedBlob){ await drawRecordedWave(recordedBlob,turn,ctx,W,H); }
+        document.getElementById('waveform-status').textContent=recordedBlob?'🔵 الأصلي مقابل 🟢 تسجيلك — بنفس خط الزمن':'🔵 موجة الصوت الأصلي — اضغط استماع ثم سجل على نفس التوقيت';
+      } catch(e){ document.getElementById('waveform-status').textContent='⚠️ تعذر قراءة موجة الصوت لهذا الملف.'; }
+    }
+    async function drawRecordedWave(blob,turn,ctx,W,H){
+      const ac=new (window.AudioContext||window.webkitAudioContext)(); const ab=await blob.arrayBuffer(); const audio=await ac.decodeAudioData(ab.slice(0)); const ch=audio.getChannelData(0), n=140;
+      const y=H*0.74, amp=H*0.22, duration=Math.max(.01,turn.endTime-turn.startTime), ratio=Math.min(1,audio.duration/duration); ctx.fillStyle='rgba(34,197,94,.9)';
+      for(let i=0;i<n*ratio;i++){const a=Math.floor(i/n*ch.length),b=Math.max(a+1,Math.floor((i+1)/n*ch.length));let peak=0;for(let j=a;j<b;j++)peak=Math.max(peak,Math.abs(ch[j]));const x=i*W/n,h=Math.max(2,peak*amp*4);ctx.fillRect(x,y-h/2,Math.max(1,W/n-.5),h)}
+      if(ratio<.999){ctx.fillStyle='rgba(239,68,68,.18)';ctx.fillRect(W*ratio,H*.55,W*(1-ratio),H*.4);ctx.fillStyle='#ef4444';ctx.fillText(`تسجيل ناقص ${(ratio*100).toFixed(0)}%`,W*ratio+6,H-8)}
+      ctx.fillStyle='#22c55e';ctx.fillText('الدبلجة',8,H/2+30); await ac.close();
     }
 
     function previewOriginalTurn() {
@@ -509,7 +539,7 @@
         myMediaRecorder.onstop=()=>{
           const duration=window._pendingRecordingDuration || Math.max(0.05,(performance.now()-recordingStartedAt)/1000); window._pendingRecordingDuration=null;
           if(raf)cancelAnimationFrame(raf); stream.getTracks().forEach(t=>t.stop()); try{micSource?.disconnect();micAnalyser?.disconnect();micCtx?.close();}catch{}
-          const blob=new Blob(audioChunks,{type:myMediaRecorder.mimeType||'audio/webm'}); const reader=new FileReader(); reader.readAsDataURL(blob);
+          const blob=new Blob(audioChunks,{type:myMediaRecorder.mimeType||'audio/webm'}); recordingBlobForWave=blob; renderWaveform(recordingTurn,blob); const reader=new FileReader(); reader.readAsDataURL(blob);
           reader.onloadend=()=>socket.emit('stop_recording_sync',{audioBase64:reader.result,duration,energy:recordingEnergySamples?recordingEnergy/recordingEnergySamples:0});
         };
         myMediaRecorder.start(100); isRecording=true;
@@ -607,198 +637,21 @@
     });
 
 
-    // ===== التحليل التلقائي للمشاهد الطويلة + تثبيت هوية المتحدث =====
-    // ملاحظة: هذا ليس Speaker-ID سحرياً؛ هو بصمة صوت محلية تعتمد على خصائص الطيف
-    // وتستخدم تجميعاً متماسكاً بدلاً من (المقطع 1 = شخصية 1، المقطع 2 = شخصية 2...).
+    // ===== التحليل التلقائي الحقيقي عبر Speaker Diarization على السيرفر =====
     async function runAutoSceneDetection() {
-      if (!uploadedCustomVideoUrl || !videoEl.src) return alert('ارفع الفيديو أولاً.');
-      const status = document.getElementById('auto-status');
-      status.textContent = '⏳ جاري اكتشاف الكلام ثم استخراج بصمات الصوت...';
-      try {
-        const stream = videoEl.captureStream ? videoEl.captureStream() : videoEl.mozCaptureStream?.();
-        if (!stream || !stream.getAudioTracks().length) throw new Error('المتصفح لا يدعم قراءة مسار صوت الفيديو.');
-
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0.2;
-        source.connect(analyser);
-        const data = new Uint8Array(analyser.fftSize);
-        const freq = new Uint8Array(analyser.frequencyBinCount);
-
-        const wasMuted = videoEl.muted;
-        const oldTime = videoEl.currentTime;
-        videoEl.muted = true;
-        videoEl.currentTime = 0;
-        await videoEl.play();
-
-        // 1) اكتشاف الكلام عبر RMS مع threshold تكيفي.
-        const samples = [];
-        const started = performance.now();
-        let raf;
-        await new Promise(resolve => {
-          const tick = () => {
-            analyser.getByteTimeDomainData(data);
-            let sum = 0;
-            for (let i=0;i<data.length;i++) { const v=(data[i]-128)/128; sum += v*v; }
-            samples.push({ t: videoEl.currentTime, rms: Math.sqrt(sum/data.length) });
-            if (videoEl.ended || performance.now()-started > Math.max(30000,(videoEl.duration||300)*1100)) return resolve();
-            raf=requestAnimationFrame(tick);
-          };
-          tick();
-        });
-        cancelAnimationFrame(raf);
-        videoEl.pause();
-        videoEl.currentTime = oldTime;
-        videoEl.muted = wasMuted;
-
-        const rmsVals=samples.map(x=>x.rms).sort((a,b)=>a-b);
-        const noise=rmsVals[Math.floor(rmsVals.length*0.2)] || 0.01;
-        const threshold=Math.max(0.012, noise*1.65);
-        const raw=samples.filter(x=>x.rms>threshold);
-        const segments=[];
-        if(raw.length){
-          let start=raw[0].t, prev=raw[0].t;
-          for(const x of raw.slice(1)){
-            if(x.t-prev>0.38){
-              if(prev-start>=0.35) segments.push({startTime:Math.max(0,start-0.10),endTime:Math.min(videoEl.duration,prev+0.16)});
-              start=x.t;
-            }
-            prev=x.t;
-          }
-          if(prev-start>=0.35) segments.push({startTime:Math.max(0,start-0.10),endTime:Math.min(videoEl.duration,prev+0.16)});
-        }
-
-        const merged=[];
-        for(const seg of segments){
-          const lastSeg=merged[merged.length-1];
-          if(lastSeg && seg.startTime-lastSeg.endTime<0.30) lastSeg.endTime=seg.endTime;
-          else merged.push({...seg});
-        }
-
-        if (!merged.length) throw new Error('لم يتم العثور على كلام واضح. جرّب مقطعاً بصوت أوضح.');
-
-        // 2) بصمة صوت لكل مقطع. نأخذ عدة لقطات من الجزء الأوسط، وليس لقطة واحدة.
-        const fingerprints=[];
-        const wait = ms => new Promise(r=>setTimeout(r,ms));
-        const makeFingerprint = () => {
-          analyser.getByteTimeDomainData(data);
-          analyser.getByteFrequencyData(freq);
-          let energy=0, zc=0;
-          for(let i=0;i<data.length;i++){
-            const v=(data[i]-128)/128; energy += v*v;
-            if(i>0 && ((data[i]-128)*(data[i-1]-128)<0)) zc++;
-          }
-          let weighted=0, total=0, high=0, low=0;
-          for(let i=0;i<freq.length;i++){
-            const v=freq[i]/255, f=i*audioCtx.sampleRate/(analyser.fftSize*2);
-            weighted += f*v; total += v;
-            if(f<1000) low += v;
-            if(f>2500) high += v;
-          }
-          const centroid = total ? weighted/total : 0;
-          return [
-            Math.log10(1e-5 + energy/data.length),
-            zc/data.length,
-            centroid/4000,
-            low/(total+1e-6),
-            high/(total+1e-6)
-          ];
-        };
-
-        for(let i=0;i<merged.length && i<300;i++){
-          const seg=merged[i];
-          videoEl.currentTime = Math.min(videoEl.duration-0.05, seg.startTime + Math.max(0.08,(seg.endTime-seg.startTime)*0.35));
-          await videoEl.play();
-          const frames=[];
-          const sampleUntil=performance.now()+Math.min(650,Math.max(250,(seg.endTime-seg.startTime)*500));
-          while(performance.now()<sampleUntil){
-            frames.push(makeFingerprint());
-            await wait(35);
-          }
-          videoEl.pause();
-          const avg=frames[0].map((_,j)=>frames.reduce((a,f)=>a+f[j],0)/frames.length);
-          fingerprints.push({ ...seg, feature:avg });
-          status.textContent=`🎙️ بصمة الصوت: ${i+1}/${Math.min(merged.length,300)}`;
-        }
-
-        // 3) توحيد المقياس ثم clustering. عدد المتحدثين يختار من البيانات نفسها،
-        // مع عقوبة تمنع تقسيم صوت واحد إلى شخصيات كثيرة بسبب اختلاف النبرة.
-        const means = fingerprints[0].feature.map((_,j)=>fingerprints.reduce((a,x)=>a+x.feature[j],0)/fingerprints.length);
-        const stds = means.map((m,j)=>Math.sqrt(fingerprints.reduce((a,x)=>a+Math.pow(x.feature[j]-m,2),0)/fingerprints.length)+1e-6);
-        const vecs=fingerprints.map(x=>x.feature.map((v,j)=>(v-means[j])/stds[j]));
-        const dist=(a,b)=>Math.sqrt(a.reduce((sum,v,j)=>sum+Math.pow(v-b[j],2),0));
-
-        // Agglomerative clustering: لا ننشئ مجموعة جديدة إلا إذا كان الصوت مختلفاً بوضوح.
-        const clusters=[];
-        const nearest=[];
-        vecs.forEach((v,i)=>{
-          if(!clusters.length){ clusters.push({center:[...v], members:[i]}); return; }
-          let best=-1, bestD=Infinity;
-          clusters.forEach((c,ci)=>{ const d=dist(v,c.center); if(d<bestD){bestD=d;best=ci;} });
-          nearest.push(bestD);
-          // threshold محافظ. إذا تغيرت النبرة قليلاً يبقى نفس المتحدث.
-          const adaptiveThreshold = 1.05;
-          if(bestD <= adaptiveThreshold || clusters.length>=6){
-            const c=clusters[best]; c.members.push(i);
-            c.center=c.center.map((x,j)=>x+(v[j]-x)/c.members.length);
-          } else clusters.push({center:[...v],members:[i]});
-        });
-
-        // دمج المجموعات الصغيرة إذا كانت أقرب لمجموعة أخرى، لمنع ظهور شخصية ثالثة بسبب مقطع شاذ.
-        for(let pass=0;pass<3;pass++){
-          for(let ci=clusters.length-1;ci>=0;ci--){
-            const c=clusters[ci];
-            if(c.members.length>1) continue;
-            let best=-1,bestD=Infinity;
-            clusters.forEach((other,oi)=>{ if(oi===ci)return; const d=dist(c.center,other.center); if(d<bestD){bestD=d;best=oi;} });
-            if(best>=0 && bestD<1.45){
-              const target=clusters[best];
-              c.members.forEach(idx=>target.members.push(idx));
-              target.center=target.members.reduce((acc,idx)=>acc.map((x,j)=>x+vecs[idx][j]),[0,0,0,0,0]).map(x=>x/target.members.length);
-              clusters.splice(ci,1);
-            }
-          }
-        }
-
-        // إذا دمج التجميع كل شيء في صوت واحد، نختبر وجود فصل واضح بين صوتين قبل الاستسلام.
-        // هذا يمنع حالة: "شخصية واحدة فقط" في أغلب الحوارات، مع الحفاظ على صوت واحد إذا لم توجد إشارة كافية.
-        if (clusters.length === 1 && vecs.length >= 4) {
-          let a=0,b=1,maxD=0;
-          for(let i=0;i<vecs.length;i++) for(let j=i+1;j<vecs.length;j++){ const d=dist(vecs[i],vecs[j]); if(d>maxD){maxD=d;a=i;b=j;} }
-          if(maxD > 1.55){
-            let c1=[...vecs[a]], c2=[...vecs[b]], g1=[], g2=[];
-            for(let pass=0;pass<6;pass++){
-              g1=[];g2=[];
-              vecs.forEach((v,i)=>(dist(v,c1)<=dist(v,c2)?g1:g2).push(i));
-              if(!g1.length||!g2.length) break;
-              c1=c1.map((_,j)=>g1.reduce((sum,i)=>sum+vecs[i][j],0)/g1.length);
-              c2=c2.map((_,j)=>g2.reduce((sum,i)=>sum+vecs[i][j],0)/g2.length);
-            }
-            if(g1.length && g2.length){ clusters.length=0; clusters.push({center:c1,members:g1},{center:c2,members:g2}); }
-          }
-        }
-
-        const labels=new Array(fingerprints.length);
-        clusters.forEach((c,ci)=>c.members.forEach(idx=>labels[idx]=ci+1));
-        autoDetectedSegments=fingerprints.map((s,i)=>({
-          index:i,startTime:+s.startTime.toFixed(2),endTime:+s.endTime.toFixed(2),
-          characterName:`الشخصية ${labels[i]}`,
-          speakerCluster:labels[i]
-        }));
-        customSegments=autoDetectedSegments;
-        renderCustomSegmentsList();
-        const chars=[...new Set(customSegments.map(s=>s.characterName))];
-        status.textContent=`✅ تم اكتشاف ${customSegments.length} حوار وربطها بـ ${chars.length} أصوات ثابتة. إذا كان صوت الشخصية يعود لاحقاً سيبقى على نفس الشخصية.`;
-        alert(`تم التحليل. تم اكتشاف ${chars.length} شخصيات صوتية تقريبية، وليس شخصية جديدة لكل رجعة للكلام. راجع النتائج قبل النشر.`);
-      } catch(err) {
-        console.error(err);
-        document.getElementById('auto-status').textContent='⚠️ تعذر تحليل بصمات المتحدثين في هذا المتصفح.';
-        alert('تعذر التحليل التلقائي: '+err.message);
-      } finally {
-        try { source.disconnect(); analyser.disconnect(); await audioCtx.close(); } catch(e) {}
-      }
+      if(!uploadedCustomVideoUrl) return alert('ارفع الفيديو أولاً.');
+      const status=document.getElementById('auto-status'); const btn=document.querySelector('button[onclick="runAutoSceneDetection()"]');
+      btn.disabled=true; status.textContent='⏳ جاري تحليل الملف مباشرة على السيرفر — لن نشغّل الفيديو ثانيةً بالكامل...';
+      try{
+        const res=await fetch('/api/analyze-scene',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videoUrl:uploadedCustomVideoUrl})});
+        const data=await res.json(); if(!res.ok) throw new Error(data.error||'فشل تحليل المتحدثين');
+        customSegments=(data.segments||[]).map((x,i)=>({index:i,startTime:x.startTime,endTime:x.endTime,characterName:`الشخصية ${Number(String(x.speaker).replace(/\\D/g,'')) + 1 || 1}`,speakerId:x.speaker,speakerCluster:x.speaker}));
+        autoDetectedSegments=customSegments.slice(); renderCustomSegmentsList();
+        const chars=[...new Set(customSegments.map(x=>x.characterName))];
+        status.textContent=`✅ اكتمل بسرعة: ${customSegments.length} حوارات • ${chars.length} شخصيات صوتية حقيقية. نفس المتحدث يبقى بنفس الهوية عند رجوعه.`;
+        alert(`تم التحليل الحقيقي بواسطة Speaker Diarization. اكتشف ${chars.length} شخصيات صوتية و${customSegments.length} حوارات.`);
+      }catch(e){console.error(e);status.textContent='⚠️ '+e.message;alert('فشل التحليل: '+e.message+'\nتأكد من تثبيت Python + pyannote ووجود HF_TOKEN.');}
+      finally{btn.disabled=false;}
     }
 
     function showDubResultScore(recordings, turns) {

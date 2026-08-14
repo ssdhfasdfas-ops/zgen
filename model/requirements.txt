@@ -1,0 +1,4 @@
+# Python 3.10 or 3.11 recommended
+# Install PyTorch using the official command for your CPU/GPU first if needed.
+torch
+pyannote.audio>=3.3,<4
