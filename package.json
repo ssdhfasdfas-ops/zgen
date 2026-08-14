@@ -1,0 +1,14 @@
+{
+  "name": "choicer-dubbing-app",
+  "version": "3.0.0",
+  "description": "Real-time Synchronized Multiplayer Web Dubbing Platform with Custom Timeline & Scene Library",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.7.5"
+  }
+}
