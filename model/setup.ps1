@@ -1,7 +1,9 @@
-# Run in PowerShell from the project folder
-py -3.11 -m venv .venv
+# Run in PowerShell from the project folder.
+# This installs the exact, tested AI dependency set for the server only.
+if (-not (Test-Path .venv\Scripts\python.exe)) {
+  py -3.11 -m venv .venv
+}
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-# Install PyTorch from https://pytorch.org/ if the automatic wheel is not suitable for your GPU.
-pip install -r model\requirements.txt
-Write-Host "Set HF_TOKEN before starting Node: `$env:HF_TOKEN='YOUR_TOKEN'"
+python -m pip install -r model\requirements.txt
+Write-Host "AI environment installed. Put HF_TOKEN=... in .env, then run npm start."
